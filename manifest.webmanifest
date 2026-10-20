@@ -1,0 +1,17 @@
+{
+  "name": "5ud0ku",
+  "short_name": "5ud0ku",
+  "description": "Portage PWA de GNOME Sudoku : remplissez la grille pour que chaque ligne, colonne et bloc contienne une fois les chiffres de 1 à 9.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f5f6f8",
+  "theme_color": "#f5f6f8",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
