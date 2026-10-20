@@ -1,6 +1,6 @@
 {
   "name": "5ud0ku",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "5ud0ku : portage PWA de GNOME Sudoku",
   "type": "module",
   "license": "GPL-3.0-or-later",

@@ -664,6 +664,33 @@ await section('Victoire seulement avec des valeurs ordinaires : une valeur d\'es
   await click('#done-close');
 });
 
+await section('Grille régulière au format téléphone : 9 rangées et 9 colonnes de même taille, avec des notes (défaut de la 1.0.0)', async () => {
+  for (const [w, h] of [[390, 844], [430, 860], [360, 640]]) {
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile: true });
+    await reloadWith({});
+    await click('#h-new'); await click('#new-start'); await sleep(900);
+    const mesure = () => ev(`(() => {
+      const c = [...document.querySelectorAll('#board .cell')];
+      const r = (i) => c[i].getBoundingClientRect();
+      return { rows: [0, 1, 2, 3, 4, 5, 6, 7, 8].map((k) => Math.round(r(k * 9).height)), cols: [0, 1, 2, 3, 4, 5, 6, 7, 8].map((k) => Math.round(r(k).width)) };
+    })()`);
+    const reguliere = (m) => Math.max(...m.rows) - Math.min(...m.rows) <= 2 && Math.max(...m.cols) - Math.min(...m.cols) <= 2;
+    const sans = await mesure();
+    check(`${w}×${h} sans notes : rangées et colonnes régulières`, reguliere(sans), JSON.stringify(sans));
+    // notes dans toutes les cases vides des rangées 1, 5 et 9
+    await key('n');
+    const vides = await ev(`[0, 4, 8].flatMap((r) => [0, 1, 2, 3, 4, 5, 6, 7, 8].map((c) => r * 9 + c)).filter((p) => !document.querySelectorAll('#board .cell')[p].classList.contains('given'))`);
+    for (const p of vides) {
+      await ev(`document.querySelectorAll('#board .cell')[${p}].click()`);
+      for (const d of ['1', '4', '7', '9']) await key(d);
+    }
+    await key('n');
+    const avec = await mesure();
+    check(`${w}×${h} avec notes dans trois rangées : rangées et colonnes régulières`, reguliere(avec), JSON.stringify(avec));
+  }
+  await send('Emulation.clearDeviceMetricsOverride');
+});
+
 check('aucune violation de la politique de sécurité du contenu pendant tout le banc', cspErrors.length === 0, cspErrors.slice(0, 2).join(' | ').slice(0, 300));
 
 const failed = results.filter((r) => !r[0]).length;
