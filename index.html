@@ -14,6 +14,9 @@
 <style>
 /* CSS en ligne : le nginx du portail sert les .css en application/octet-stream (Chrome refuse la feuille). */
 :root{
+  /* Espace autour de la barre d'outils : 4 px jusqu'à 700 px de hauteur d'écran, puis 1 px de plus par 20 px de hauteur, plafonné à 16 px
+     (7 px à 765 px, 12 px à 860 px). Le plateau a une hauteur minimale (neuf rangées de notes) : seul l'écran qui a de la place gagne de l'air. */
+  --air:clamp(4px,calc(4px + (100vh - 700px) / 20),16px);
   --bg:#f5f6f8;--fg:#1c1f26;--muted:#6a7080;--panel:#fff;--line:#c4c9d4;--line-strong:#1c1f26;
   --cell:#fff;--given:#1c1f26;--entry:#2456b8;--sel:#cfe0ff;--hl:#e9eef8;--same:#d6ecd8;
   --err:#c62828;--errbg:#fbe3e3;--acc:#2456b8;--accfg:#fff;--shadow:0 1px 3px rgba(0,0,0,.18);
@@ -43,6 +46,7 @@ button{font:inherit;color:inherit;background:var(--panel);border:1px solid var(-
   -webkit-backdrop-filter:var(--bf,none);backdrop-filter:var(--bf,none);
   min-height:44px;padding:6px 12px;cursor:pointer}
 button:disabled{opacity:.4;cursor:default}
+button[hidden]{display:none}
 button:focus-visible,.cell:focus-visible{outline:3px solid var(--acc);outline-offset:1px}
 button.primary{background:var(--acc);color:var(--accfg);border-color:var(--acc)}
 .ic{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
@@ -57,9 +61,9 @@ header .grow{flex:1}
 #g-level{display:block;padding:2px 0 0;font:600 .64rem/1 var(--ui-font,system-ui,sans-serif);letter-spacing:.04em;color:var(--muted)}
 .iconbtn{width:44px;padding:0}
 #play{display:flex;flex-direction:column;align-items:center;gap:10px;width:100%}
-#boardwrap{position:relative;width:min(100%,560px,calc(100vh - 354px));width:min(100%,560px,calc(100dvh - 354px));min-width:270px;aspect-ratio:1}
+#boardwrap{position:relative;width:min(100%,560px,calc(100vh - 354px - 2 * var(--air)));width:min(100%,560px,calc(100dvh - 354px - 2 * var(--air)));min-width:270px;aspect-ratio:1}
 #side{display:flex;flex-direction:column;align-items:center;gap:10px;width:min(100%,560px)}
-#board{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));grid-template-rows:repeat(9,minmax(0,1fr));width:100%;height:100%;border:3px solid var(--line-strong);
+#board{--n:9;display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr));grid-template-rows:repeat(var(--n),minmax(0,1fr));width:100%;height:100%;border:3px solid var(--line-strong);
   border-radius:var(--board-radius,6px);background:var(--line);gap:1px;overflow:hidden;box-shadow:var(--shadow);
   -webkit-backdrop-filter:var(--bf,none);backdrop-filter:var(--bf,none)}
 .cell{-webkit-backdrop-filter:none;backdrop-filter:none;position:relative;display:flex;align-items:center;justify-content:center;margin:0;padding:0;min-height:0;border:0;border-radius:0;
@@ -78,6 +82,15 @@ header .grow{flex:1}
 .m{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);width:100%;height:100%;padding:1px;
   font-size:calc(clamp(.5rem,2.5vw,.85rem) * var(--zoom));font-weight:500;line-height:1;color:var(--muted)}
 .m i{font-style:normal;display:flex;align-items:center;justify-content:center}
+/* 16×16 : cases de ~22 px sur un téléphone en portrait ; notes en 4×4, chiffre plus petit */
+#board[data-n="16"] .cell{font-size:calc(clamp(.7rem,3.4vw,1.35rem) * var(--zoom))}
+#board[data-n="16"] .m{grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);padding:0;font-size:calc(clamp(.3rem,1.35vw,.55rem) * var(--zoom));font-weight:600}
+#board[data-n="4"] .cell{font-size:calc(clamp(2.4rem,16vw,4.4rem) * var(--zoom))}
+#board[data-n="4"] .m{grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr);padding:2px;font-size:calc(clamp(1rem,6vw,1.8rem) * var(--zoom));font-weight:600}
+#pad[data-n="4"]{grid-template-columns:repeat(2,1fr);width:min(100%,220px)}
+#pad[data-n="4"] button{aspect-ratio:1.5;font-size:2rem}
+#pad[data-n="16"]{grid-template-columns:repeat(4,1fr);width:min(100%,300px)}
+#pad[data-n="16"] button{aspect-ratio:1.55;font-size:1.3rem}
 .m i.err{color:var(--err);text-decoration:line-through}
 .m i.on-same{color:var(--acc);font-weight:700}
 #pause{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
@@ -86,7 +99,7 @@ header .grow{flex:1}
 #busy{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--bg) 80%,transparent);
   border-radius:6px;font-size:1.1rem}
 #busy[hidden]{display:none}
-#tools{width:100%;display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+#tools{margin:var(--air) 0;width:100%;display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
 #tools button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:.72rem;min-height:52px;padding:4px 2px}
 #tools button[aria-pressed="true"]{background:var(--acc);color:var(--accfg);border-color:var(--acc)}
 #tools #b-notes[aria-pressed="true"]{background:var(--pad-note);color:var(--fg);border-color:var(--pad-note-line)}
@@ -102,10 +115,22 @@ header .grow{flex:1}
 #pad button.on{background:var(--fg) !important;color:var(--bg);border-color:var(--fg)}
 #pad button.absent{visibility:hidden}
 #padhint{margin:0;min-height:1.3em;font-size:.85rem;color:var(--muted);text-align:center}
-@media (min-width:900px) and (min-aspect-ratio:5/4){
-  #play{flex-direction:row;align-items:flex-start;justify-content:center;gap:28px}
-  #boardwrap{width:min(calc(100vh - 130px),640px);width:min(calc(100dvh - 130px),640px)}
-  #side{width:320px;padding-top:6px}
+/* Paysage (téléphone couché, tablette, ordinateur) : le plateau d'un côté, de l'autre le bandeau (menu, temps, pause), les outils et le pavé. */
+@media (orientation:landscape) and (min-aspect-ratio:11/10){
+  body[data-view="game"] #app{display:grid;grid-template-columns:auto minmax(210px,320px);grid-template-rows:auto 1fr;column-gap:22px;row-gap:10px;
+    justify-content:center;align-content:center;align-items:start;min-height:100vh;min-height:100dvh}
+  body[data-view="game"] #play{display:contents}
+  body[data-view="game"] #boardwrap{grid-column:1;grid-row:1 / span 2;min-width:0;
+    width:min(640px,calc(100vh - 26px),calc(100vw - 380px));width:min(640px,calc(100dvh - 26px),calc(100vw - 380px))}
+  body[data-view="game"] header{grid-column:2;grid-row:1;width:100%}
+  body[data-view="game"] #side{grid-column:2;grid-row:2;width:100%}
+}
+@media (orientation:landscape) and (min-aspect-ratio:11/10) and (max-height:560px){
+  body[data-view="game"] #side{gap:6px}
+  body[data-view="game"] #tools button{min-height:44px}
+  body[data-view="game"] #pad{width:min(100%,230px);padding:6px;gap:5px}
+  body[data-view="game"] #pad button{aspect-ratio:1.7;font-size:1.3rem}
+  body[data-view="game"] #padhint{min-height:0;font-size:.75rem}
 }
 dialog{border:1px solid var(--line-strong);border-radius:calc(var(--btn-radius,10px) + 4px);background:var(--panel);color:var(--fg);padding:18px;max-width:min(92vw,440px);width:100%;box-shadow:0 10px 40px rgba(0,0,0,.35);
   -webkit-backdrop-filter:var(--bf,none);backdrop-filter:var(--bf,none);font-family:inherit}
@@ -121,6 +146,11 @@ dialog p{margin:8px 0}
 .diffs{display:flex;flex-direction:column;gap:6px}
 .diffs label{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--line);border-radius:10px;min-height:48px;cursor:pointer}
 .diffs label small{margin-left:auto;color:var(--muted)}
+/* Taille et Type : deux choix sur une seule ligne */
+.diffs[hidden]{display:none}
+.diffs.inline{flex-direction:row}
+.diffs label.off{opacity:.4;cursor:default}
+.diffs.inline label{flex:1;min-width:0;justify-content:flex-start}
 .diffs input{width:20px;height:20px;flex:none}
 textarea{width:100%;min-height:90px;font:14px/1.3 ui-monospace,Consolas,monospace;background:var(--cell);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px}
 .err-msg{color:var(--err);margin:6px 0 0}
@@ -160,7 +190,7 @@ dialog>.row:last-child{position:sticky;bottom:-18px;background:var(--panel);padd
   letter-spacing:.05em;-webkit-backdrop-filter:none;backdrop-filter:none;text-align:left}
 .stats .codecopy.copied{color:var(--acc)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-@media (max-height:700px){#app{gap:6px} #play,#side{gap:6px} #pad{width:min(100%,230px);padding:6px;gap:5px} #pad button{font-size:1.25rem;aspect-ratio:1.9} #boardwrap{width:min(100%,560px,calc(100vh - 324px));width:min(100%,560px,calc(100dvh - 324px))}}
+@media (max-height:700px){#app{gap:6px} #play,#side{gap:6px} #pad{width:min(100%,230px);padding:6px;gap:5px} #pad button{font-size:1.25rem;aspect-ratio:1.9} #boardwrap{width:min(100%,560px,calc(100vh - 324px - 2 * var(--air)));width:min(100%,560px,calc(100dvh - 324px - 2 * var(--air)))}}
 </style>
 </head>
 <body>
@@ -174,6 +204,7 @@ dialog>.row:last-child{position:sticky;bottom:-18px;background:var(--panel);padd
       <button id="h-options" class="big"></button>
       <button id="h-stats" class="big"></button>
       <button id="h-help" class="big"></button>
+      <button id="h-quit" class="big"></button>
     </nav>
     <p class="foot" id="h-foot"><span id="h-ver"></span><br><span id="h-inspired"></span></p>
   </section>
@@ -181,6 +212,7 @@ dialog>.row:last-child{position:sticky;bottom:-18px;background:var(--panel);padd
     <button id="b-menu" class="iconbtn"></button>
     <span id="g-info"><span id="clock" aria-live="off">0:00</span><button id="g-code" class="gcode" hidden></button><span id="g-level"></span></span>
     <span class="grow"></span>
+    <button id="b-full" class="iconbtn" hidden></button>
     <button id="b-pause" class="iconbtn"></button>
   </header>
   <main id="play">
@@ -223,7 +255,13 @@ dialog>.row:last-child{position:sticky;bottom:-18px;background:var(--panel);padd
 
 <dialog id="newgame" aria-labelledby="new-title">
   <h2 id="new-title"></h2>
+  <p class="lbl" id="new-size-lbl"></p>
+  <div class="diffs inline" id="sizes" role="radiogroup" aria-labelledby="new-size-lbl"></div>
+  <p class="lbl" id="new-type-lbl"></p>
+  <div class="diffs inline" id="types" role="radiogroup" aria-labelledby="new-type-lbl"></div>
+  <p class="hint" id="new-mode-hint" hidden></p>
   <div class="diffs" id="diffs" role="radiogroup"></div>
+  <p class="hint" id="new-best-petit" hidden></p>
   <p class="hint" id="new-daily-info"></p>
   <div class="row"><button id="new-daily"></button><button id="new-enter"></button></div>
   <div class="row"><button id="new-cancel"></button><button id="new-start" class="primary"></button></div>
@@ -244,9 +282,11 @@ dialog>.row:last-child{position:sticky;bottom:-18px;background:var(--panel);padd
     <div class="code" id="share-code5"></div>
     <div class="row"><button id="share-copy5"></button></div>
   </div>
+  <div id="share-wrap-hash">
   <p class="lbl" id="share-lblhash"></p>
   <div class="code" id="share-code"></div>
   <div class="row"><button id="share-copy"></button></div>
+  </div>
   <div class="row"><button id="share-close" class="primary"></button></div>
 </dialog>
 
@@ -272,7 +312,7 @@ dialog>.row:last-child{position:sticky;bottom:-18px;background:var(--panel);padd
 
 <dialog id="help" aria-labelledby="help-title">
   <h2 id="help-title"></h2>
-  <p id="help-1"></p><p id="help-2"></p><p id="help-3"></p><p id="help-4"></p>
+  <p id="help-1"></p><p id="help-2"></p><p id="help-3"></p><p id="help-4"></p><p id="help-5"></p>
   <div class="row"><button id="help-about"></button><button id="help-close" class="primary"></button></div>
 </dialog>
 

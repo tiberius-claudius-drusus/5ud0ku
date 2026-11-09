@@ -14,10 +14,13 @@
  *  - `canUndo` est exact (l'amont répond comme `canRedo` à la place) ;
  *  - activer toutes les possibilités sans rien changer n'efface plus la pile « refaire » ;
  *  - `playOrder` complète avec les cases remplies avant un chargement (l'amont visait la même chose mais sa
- *    condition était inversée, si bien que la liste restait incomplète).
+ *    condition était inversée, si bien que la liste restait incomplète) ;
+ *  - mode Jigsaw (ajout de 5ud0ku) : le plateau porte ses régions ; la partie se résout et se classe avec `src/jigsaw_solveur.js` (`fromJigsaw`).
  */
-import { SudokuGenerator, DIFFICULTY } from './generator.js';
-import { SudokuBoard, SudokuError, ERRORS, ALIGNED21 } from './board.js';
+import { SudokuGenerator, DIFFICULTY, randomSeed } from './generator.js';
+import { SudokuBoard, SudokuError, ERRORS } from './board.js';
+import { analyser, genererJigsawNiveau } from './jigsaw_solveur.js';
+import { moteur, moteurDe, genererJigsawN, REGIONS_16, REGIONS_4 } from './sudoku_n.js';
 import { canonicalCode } from './code.js';
 
 export const STACK_ACTION = Object.freeze({
@@ -73,7 +76,22 @@ export class SudokuGame {
   /** Résout le plateau (solution unique exigée) : renseigne les solutions et la difficulté. Lève SudokuError. */
   static solve(board) {
     // une grille entièrement donnée n'est pas un puzzle (rien à résoudre, donc aucune difficulté) : refusée proprement
-    if (board.totalFixed >= 81) throw new SudokuError(ERRORS.INVALID_PUZZLE);
+    if (board.totalFixed >= board.N) throw new SudokuError(ERRORS.INVALID_PUZZLE);
+    if (board.n !== 9) {   // 4×4 ou 16×16 : solveur par techniques du moteur n×n (solution unique exigée, difficulté = technique la plus difficile)
+      const b = board.n === 16 ? 4 : 2;
+      const r = (board.isJigsaw ? moteur(b, board.regions) : moteurDe(b)).analyser(board.fixedValues());
+      if (!r.resolu) throw new SudokuError(r.ambigue ? ERRORS.MULTIPLE_SOLUTIONS : ERRORS.INVALID_PUZZLE);
+      board.solution.set(r.solution);
+      board.difficultyCategory = r.niveau;
+      return;
+    }
+    if (board.isJigsaw) {   // régions irrégulières : solveur par techniques généralisées (solution unique exigée, difficulté = technique la plus difficile)
+      const r = analyser(board.regions, board.fixedValues());
+      if (!r.resolu) throw new SudokuError(r.ambigue ? ERRORS.MULTIPLE_SOLUTIONS : ERRORS.INVALID_PUZZLE);
+      board.solution.set(r.solution);
+      board.difficultyCategory = r.niveau;
+      return;
+    }
     const g = new SudokuGenerator(1);
     if (!g.setPuzzle(board.fixedCells())) throw new SudokuError(ERRORS.INVALID_PUZZLE);
     const solution = g.solveUnique();
@@ -106,6 +124,45 @@ export class SudokuGame {
     const r = SudokuGenerator.generate(difficulty, seed);
     const game = new SudokuGame(SudokuBoard.fromGenerated(r.puzzle, r.solution, difficulty), options);
     game.seed = r.seed;
+    game.startClock();
+    return game;
+  }
+
+  /** Génère une petite partie 4×4 (blocs de 2×2, chiffres 1 à 4) : une seule difficulté, facile, avec 7 indices ou davantage (débutants et enfants). */
+  static fromPetit(seed = randomSeed(), options) {
+    const r = moteurDe(2).generer(seed, DIFFICULTY.EASY, { indicesMin: 7 });
+    if (!r) throw new SudokuError(ERRORS.GENERIC);
+    const game = new SudokuGame(SudokuBoard.fromFlat(r.puzzle, r.solution, DIFFICULTY.EASY, REGIONS_4), options);
+    game.seed = seed;
+    game.startClock();
+    return game;
+  }
+
+  /** Génère une partie 16×16 (blocs de 4×4, chiffres 0 à F) de la difficulté demandée (une graine donnée donne toujours la même partie). */
+  static fromHex(difficulty, seed = randomSeed(), options) {
+    const r = moteurDe(4).generer(seed, difficulty);
+    if (!r) throw new SudokuError(ERRORS.GENERIC);
+    const game = new SudokuGame(SudokuBoard.fromFlat(r.puzzle, r.solution, difficulty, REGIONS_16), options);
+    game.seed = seed;
+    game.startClock();
+    return game;
+  }
+
+  /** Génère une partie Jigsaw 16×16 (régions irrégulières de 16 cases, chiffres 0 à F) de la difficulté demandée (même graine, même partie). */
+  static fromHexJigsaw(difficulty, seed = randomSeed(), options) {
+    const r = genererJigsawN(4, seed, difficulty);
+    if (!r) throw new SudokuError(ERRORS.GENERIC);
+    const game = new SudokuGame(SudokuBoard.fromFlat(r.puzzle, r.solution, difficulty, r.regions), options);
+    game.seed = seed;
+    game.startClock();
+    return game;
+  }
+
+  /** Génère une partie Jigsaw (régions irrégulières) de la difficulté demandée (une graine donnée donne toujours la même partie). */
+  static fromJigsaw(difficulty, seed = randomSeed(), options) {
+    const r = genererJigsawNiveau(seed, difficulty);
+    const game = new SudokuGame(SudokuBoard.fromFlat(r.puzzle, r.solution, difficulty, r.regions), options);
+    game.seed = seed;
     game.startClock();
     return game;
   }
@@ -205,7 +262,7 @@ export class SudokuGame {
   }
 
   _disableAllEarmarksHelper(item, p) {
-    for (let n = 0; n < 9; n++) if (this.board.isEarmarkEnabled(p, n)) this._earmarkStep(item, p, n, false);
+    for (let n = 0; n < this.board.n; n++) if (this.board.isEarmarkEnabled(p, n)) this._earmarkStep(item, p, n, false);
   }
 
   undo() {
@@ -280,10 +337,10 @@ export class SudokuGame {
   enableAllEarmarkPossibilities() {
     if (this.finished) return;
     const item = this._newItem(STACK_ACTION.ENABLE_ALL_EARMARK_POSSIBILITIES);
-    for (let p = 0; p < 81; p++) {
+    for (let p = 0; p < this.board.N; p++) {
       if (this.board.value[p] !== NONE) continue;
       const possible = this.board.cellPossibilities(p);
-      for (let n = 0; n < 9; n++) if (!this.board.isEarmarkEnabled(p, n) && possible[n]) this._earmarkStep(item, p, n, true);
+      for (let n = 0; n < this.board.n; n++) if (!this.board.isEarmarkEnabled(p, n) && possible[n]) this._earmarkStep(item, p, n, true);
     }
     if (item.earmarkChanges.length > 0) this._finish(item); else this.currentAction = STACK_ACTION.NONE;
   }
@@ -303,7 +360,7 @@ export class SudokuGame {
     if (this.finished) return;
     const oldVal = this.board.value[p];
     const item = this._newItem(STACK_ACTION.INSERT_AND_DISABLE_ALIGNED_EARMARKS);
-    for (const q of ALIGNED21[p]) {
+    for (const q of this.board.aligned21[p]) {
       if (q === p) continue;
       if (this.board.isEarmarkEnabled(q, val)) this._earmarkStep(item, q, val, false);
     }
@@ -351,7 +408,7 @@ export class SudokuGame {
     if (this.finished) return;
     const item = this._newItem(STACK_ACTION.RESET);
     item.timeBefore = this.totalTimePlayed();      // pour qu'Annuler rende aussi le temps (relecture de Claudius, R1)
-    for (let p = 0; p < 81; p++) {
+    for (let p = 0; p < this.board.N; p++) {
       if (this.board.isFixed(p)) continue;
       const v = this.board.value[p];
       if (v !== NONE) this._valueStep(item, p, v, NONE);
@@ -374,7 +431,7 @@ export class SudokuGame {
     const order = [];
     for (const item of this.stack) for (const vc of item.valueChanges) if (!seen.has(vc.pos)) { seen.add(vc.pos); order.push(vc.pos); }
     order.reverse();
-    if (order.length === 81 - this.board.totalFixed) return order;
+    if (order.length === this.board.N - this.board.totalFixed) return order;
     // partie chargée : les cases déjà remplies avant la sauvegarde sont placées au hasard
     const rest = this.board.cellsNotFixed().filter((p) => !seen.has(p));
     for (let i = rest.length - 1; i > 0; i--) {
@@ -386,7 +443,7 @@ export class SudokuGame {
 
   /** Remplit toute la grille avec la solution (essais). */
   autoComplete() {
-    for (let p = 0; p < 81; p++) if (this.board.value[p] !== this.board.solution[p]) this.insert(p, this.board.solution[p]);
+    for (let p = 0; p < this.board.N; p++) if (this.board.value[p] !== this.board.solution[p]) this.insert(p, this.board.solution[p]);
   }
 
   /** Sauvegarde JSON de la partie en cours. */

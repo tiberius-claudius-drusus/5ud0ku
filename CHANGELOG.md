@@ -2,6 +2,64 @@
 
 Format : une entrée par version, la plus récente en premier.
 
+## [2.2.1] - 2026-11-09
+
+Corrections de l'audit de Claudius (Opus) sur la 2.2.0 :
+- **M1** : « Recommencer » une grille 16×16 terminée, reprise d'une sauvegarde, régénérait la grille sur le fil principal (jusqu'à 10 s en Jigsaw 16×16, page figée). La grille, sa solution et ses régions étant déjà là, on recrée la partie sans rien calculer (`restartFinished`) : instantané pour les cinq types, même code.
+- **M2** : saisie d'un code 16×16 ou Jigsaw 16×16 : le bouton « Commencer » devient « Génération… » et « Commencer » comme « Fermer » sont inactifs pendant le calcul (plus de second calcul sur un second appui).
+- **F1** : l'écran maintenu allumé ne demande plus le verrou deux fois quand deux affichages se suivent (le premier verrou n'était jamais relâché) ; un verrou obtenu après l'arrêt de la partie est rendu aussitôt.
+- **F2** : l'aide décrit le 4×4, le 16×16 (clavier 0-9 et A-F, Retour arrière pour effacer) et le type puzzle (Jigsaw), dans les 20 langues.
+- **F3** : commentaires d'en-tête remis à jour.
+- **F4** : lancer un 4×4 n'efface plus le choix de difficulté des autres types.
+- **F5** : le contrôle « partie sans défilement à la taille par défaut du banc » fixe sa taille (500×800) : la hauteur utile d'une fenêtre « 430×860 » dépend du navigateur.
+- **F7** : un échec de génération (très improbable) affiche « Impossible de générer la grille. Réessayez. » au lieu d'un retour muet à l'accueil.
+- **F8** : espagnol : tutoiement partout.
+Non traités : F6 (16×16 sur téléphone : accepté tel quel par Philippe). 176 tests unitaires, banc Chrome 212 contrôles.
+
+## [2.2.0] - 2026-11-09
+
+**Nouveau : grille 4×4** (demande de Philippe), pour les débutants et les enfants. « Taille » propose maintenant 4×4, 9×9 et 16×16 sur une seule ligne. Blocs de 2×2, chiffres 1 à 4, **une seule difficulté** (facile, 7 indices ou plus : aucun niveau à choisir, un seul meilleur temps), classique seulement (le choix « puzzle » est grisé). Grosses cases, pavé de 4 touches en 2×2, notes en 2×2. Code de grille de type 4 (« 411… »), grille du jour, sauvegarde `size: 4`, statistiques à part. Contrôlé contre le solveur de Solo (Simon Tatham, MIT) : 60 de nos grilles 4×4 jugées à solution unique. 175 tests unitaires, banc Chrome 209 contrôles.
+
+## [2.1.1] - 2026-11-09
+
+**Codes de grille uniformes** (demande de Philippe). Le premier symbole du code indique maintenant le type de grille (0 classique 9×9, 1 puzzle 9×9, 2 classique 16×16, 3 puzzle 16×16), le deuxième la version de l'algorithme, et la difficulté vaut toujours 1 à 4 quel que soit le type (avant : 5 à 8, 9 à 12, 13 à 16 selon le type). Les codes classiques existants (« 01… ») sont déjà dans ce format et ne changent pas. Les codes des versions 1.1 à 2.1.0 pour les autres types restent valables et désignent la même grille ; seuls les nouveaux codes sont affichés au format uniforme, et une partie déjà jouée sous un ancien code garde son meilleur temps de la grille du jour. Tests : un test fige la correspondance ancien code / nouveau code pour les grilles de référence Jigsaw et 16×16.
+
+## [2.1.0] - 2026-11-09
+
+**Nouveau : Jigsaw 16×16** (demande de Philippe) et **« Nouvelle partie » refaite** : deux lignes de choix, chacune sur une seule ligne, **Taille** (9×9, 16×16) et **Type** (classique, puzzle ; « Jigsaw » dans les autres langues que le français). Le puzzle 16×16 a seize régions connexes de seize cases de formes irrégulières, chiffres 0 à 9 puis A à F, mêmes quatre niveaux et même solveur à techniques que les autres modes, solution toujours unique. Codes de grille (symbole de difficulté 13 à 16, version d'algorithme propre : les trois autres modes gardent leur sens), grille du jour, sauvegarde (`size: 16` et `regions` en 256 chiffres hexadécimaux), statistiques et meilleurs temps séparés pour chacun des quatre types de grille. La génération construit des régions au hasard (≈ 38 % des cases hors de leur bloc) et ne garde que celles qui ont une grille complète (environ une sur dix) : 1 à 3 s sur un ordinateur, dans un Web Worker. Contrôle contre le solveur de Solo (Simon Tatham, MIT) : 24 de nos grilles Jigsaw 16×16 jugées à solution unique (le générateur de Solo ne sait pas en produire en 16×16). 165 tests unitaires, banc Chrome 195 contrôles.
+
+## [2.0.0] - 2026-11-09
+
+**Nouveau : grille 16×16** (demande de Philippe). « Nouvelle partie » propose un troisième type de grille, **16×16** : blocs de 4×4, chiffres **0 à 9 puis A à F** (pavé de 16 touches en 4×4, clavier 0-9 et A-F, notes en 4×4 dans chaque case). Quatre niveaux (Facile à Très difficile) mesurés par le même solveur à techniques que Jigsaw, solution toujours unique ; génération par un Web Worker (le niveau 4 prend ~1 s sur un ordinateur) avec repli sur le fil principal. Codes de grille à 12 symboles (symbole de difficulté 9 à 12, version d'algorithme propre : les codes classiques et Jigsaw gardent leur sens), grille du jour 16×16, sauvegarde avec `size: 16` (une sauvegarde classique ne change pas), statistiques et meilleurs temps séparés par type de grille. Le partage « # » de l'amont reste classique seulement. Textes dans les 20 langues. Contrôlé contre le vrai code de Solo (Simon Tatham, MIT), préréglages 4x4 : 120 grilles de son générateur résolues par notre solveur avec sa solution, 40 de nos grilles jugées à solution unique par son solveur. 157 tests unitaires, banc Chrome étendu (186 contrôles).
+
+## [1.1.4] - 2026-11-09
+
+L'espace autour de la barre d'outils **s'adapte à la hauteur de l'écran** (demande de Philippe) : 4 px jusqu'à 700 px de hauteur, puis 1 px de plus par 20 px, plafonné à 16 px (7 px à 765 px, 12 px à 860 px). Variable CSS `--air`, utilisée aussi dans le calcul de la taille du plateau. Banc Chrome : 164 contrôles sans échec.
+
+## [1.1.3] - 2026-11-09
+
+Plus d'air autour de la barre d'outils (Annuler, Rétablir, Notes, Essai, Effacer) : 7 px de plus au-dessus et en dessous (demande de Philippe). Le plateau rétrécit d'autant sur les écrans courts pour que le pavé reste entièrement visible sans défilement.
+
+## [1.1.2] - 2026-11-09
+
+**Plein écran** (demande de Philippe) : une touche dans le bandeau de la partie (à gauche de la pause) passe en plein écran et en sort ; nouvelle option « Démarrer en plein écran », **cochée par défaut** : l'application passe en plein écran au premier appui ou à la première touche de la session (le navigateur l'exige après un geste), une seule fois par chargement. Touche et option sont absentes quand le navigateur n'a pas de plein écran (iPhone). Textes dans les 20 langues.
+
+**Correction** : le bouton « Quitter » de l'accueil (1.0.2) n'avait aucun texte (la clé existait dans les 20 langues mais n'était pas appliquée). Le banc Chrome, qui le signalait sans qu'on l'ait vu, est remis d'aplomb : plus aucun échec (164 contrôles).
+
+## [1.1.1] - 2026-11-09
+
+**Écran qui reste allumé en partie** (demande de Philippe) : tant qu'une partie court (ni en pause, ni terminée, page visible), l'application demande le verrou d'éveil de l'écran (Screen Wake Lock) ; l'économiseur d'écran ne coupe plus la partie. Le verrou est rendu à la pause, à la victoire, au retour à l'accueil et quand la page est cachée (le navigateur le retire de lui-même), puis redemandé à la reprise. Sans effet si le navigateur ne le propose pas.
+
+**Mode paysage refait** (demande de Philippe) : quand l'écran est plus large que haut, le plateau occupe un côté et, de l'autre, le bandeau (menu, temps, pause), les outils et le pavé de saisie, sans défilement, du téléphone couché (667×375) à l'ordinateur. Le portrait ne change pas. Banc Chrome : nouvelle section « Paysage » (quatre tailles).
+
+## [1.1.0] - 2026-11-08
+
+**Nouveau : mode Jigsaw** (demande de Philippe). Le choix « Type de grille » de « Nouvelle partie » propose, en plus du classique, des grilles dont les neuf régions ont des formes irrégulières (d'un seul tenant, neuf cases chacune) à la place des carrés de 3×3. Quatre niveaux (Facile, Moyen, Difficile, Très difficile) mesurés par un solveur à techniques ; solution toujours unique. Codes de grille à 12 symboles (difficulté 5 à 8 pour Jigsaw, version d'algorithme propre : un code classique garde son sens), grille du jour Jigsaw, statistiques et meilleurs temps par mode, sauvegarde avec les régions (une sauvegarde classique ne change pas). Le partage « # » de l'amont reste classique seulement. Textes dans les 20 langues. Contrôlé contre le vrai code de Solo (Simon Tatham, MIT) : 240 grilles Jigsaw de son générateur résolues par notre solveur avec sa solution, et 48 de nos grilles jugées à solution unique par son solveur. 147 tests unitaires, banc Chrome étendu.
+
+## [1.0.2] - 2026-10-26
+
+Bouton **Quitter** sur l’accueil (demande de Philippe, comme dans Harena) : enregistre la partie puis tente de fermer la fenêtre ; sinon, un message indique d’utiliser le bouton Accueil ou Retour du téléphone.
+
 ## [1.0.1] - 2026-10-20
 
 **Correction : une rangée de la grille s'affichait à moitié de hauteur sur téléphone** (signalé par l'Auctor sur la 1.0.0 publiée, cause trouvée et correctif proposé par Claudius). `#board` définissait les 9 colonnes mais pas les rangées : celles-ci, implicites, étaient dimensionnées par leur contenu et l'une ou l'autre s'écrasait selon les chiffres et les notes (mesuré à 390×844 : 13 45 47 45 45 47 45 45 13 px). Les rangées et les colonnes sont maintenant `repeat(9, minmax(0, 1fr))` (le `0` empêche une case au contenu plus haut, comme les notes en 3×3, d'agrandir sa piste). Le banc Chrome vérifie les 9 rangées et les 9 colonnes de même taille à ±1 px sur trois tailles de téléphone, avec des notes dans plusieurs rangées. 113 tests unitaires, banc Chrome étendu.

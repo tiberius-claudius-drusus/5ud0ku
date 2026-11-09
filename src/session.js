@@ -14,9 +14,9 @@
  */
 import { DIFFICULTY } from './generator.js';
 import { SudokuGame } from './game.js';
-import { ALIGNED21, rowOf, colOf, SudokuBoard } from './board.js';
+import { rowOf, colOf, SudokuBoard } from './board.js';
 import { THEMES, MODES, DEFAULT_FAMILY, normalize as normalizeTheme } from './themes.js';
-import { makeCode, parseCode, canonicalCode, dailySeed, dailyCode, localDate } from './code.js';
+import { MODE, makeCode, parseCode, canonicalCode, dailySeed, dailyCode, localDate } from './code.js';
 import { normalizeStats, addGame, bestFor } from './stats.js';
 import { CODES } from './lang/index.js';
 
@@ -36,6 +36,7 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   earmarkWarnings: false,
   autocleanEarmarks: false,
   pickerSecondClick: false,
+  startFullscreen: true,          // plein écran au premier geste (si le navigateur le permet)
 });
 
 const KEY_SAVE = '5ud0ku:savefile';
@@ -63,7 +64,16 @@ export class SudokuSession {
     const data = this._read(KEY_DATA);
     this.highscores = {};
     for (const d of PLAYABLE) if (typeof data.highscores?.[d] === 'number' && data.highscores[d] >= 0) this.highscores[d] = data.highscores[d];
+    this.highscoresJigsaw = {};   // meilleurs temps du mode Jigsaw, par difficulté (ceux du classique restent dans `highscores`)
+    for (const d of PLAYABLE) if (typeof data.highscoresJigsaw?.[d] === 'number' && data.highscoresJigsaw[d] >= 0) this.highscoresJigsaw[d] = data.highscoresJigsaw[d];
     this.selectedDifficulty = PLAYABLE.includes(data.selectedDifficulty) ? data.selectedDifficulty : DIFFICULTY.EASY;
+    this.selectedMode = Object.values(MODE).includes(data.selectedMode) ? data.selectedMode : MODE.CLASSIQUE;
+    this.highscoresPetit = {};   // meilleurs temps du 4×4 (une seule difficulté)
+    for (const d of PLAYABLE) if (typeof data.highscoresPetit?.[d] === 'number' && data.highscoresPetit[d] >= 0) this.highscoresPetit[d] = data.highscoresPetit[d];
+    this.highscoresHexJigsaw = {};   // meilleurs temps du Jigsaw 16×16, par difficulté
+    for (const d of PLAYABLE) if (typeof data.highscoresHexJigsaw?.[d] === 'number' && data.highscoresHexJigsaw[d] >= 0) this.highscoresHexJigsaw[d] = data.highscoresHexJigsaw[d];
+    this.highscoresHex = {};      // meilleurs temps du 16×16, par difficulté
+    for (const d of PLAYABLE) if (typeof data.highscoresHex?.[d] === 'number' && data.highscoresHex[d] >= 0) this.highscoresHex[d] = data.highscoresHex[d];
     this.stats = normalizeStats(data.stats);
   }
 
@@ -86,7 +96,7 @@ export class SudokuSession {
   }
 
   saveData() {
-    this._write(KEY_DATA, { highscores: this.highscores, selectedDifficulty: this.selectedDifficulty, stats: this.stats });
+    this._write(KEY_DATA, { highscores: this.highscores, highscoresJigsaw: this.highscoresJigsaw, highscoresHex: this.highscoresHex, highscoresHexJigsaw: this.highscoresHexJigsaw, highscoresPetit: this.highscoresPetit, selectedDifficulty: this.selectedDifficulty, selectedMode: this.selectedMode, stats: this.stats });
   }
 
   // --- événements ---
@@ -120,6 +130,18 @@ export class SudokuSession {
     this.saveData();
   }
 
+  /** Type de grille choisi à l'écran « Nouvelle partie » : classique, Jigsaw, 16×16, Jigsaw 16×16 ou 4×4. */
+  setSelectedMode(mode) {
+    if (!Object.values(MODE).includes(mode)) throw new Error('Mode inconnu');
+    this.selectedMode = mode;
+    this.saveData();
+  }
+
+  /** Meilleurs temps d'un mode, par difficulté. */
+  highscoresOf(mode = this.selectedMode) {
+    return { [MODE.JIGSAW]: this.highscoresJigsaw, [MODE.HEX]: this.highscoresHex, [MODE.HEXJIGSAW]: this.highscoresHexJigsaw, [MODE.PETIT]: this.highscoresPetit }[mode] ?? this.highscores;
+  }
+
   // --- parties ---
 
   _setGame(game) {
@@ -131,21 +153,43 @@ export class SudokuSession {
     this._emit('game-changed');
   }
 
-  /** Nouvelle partie de la difficulté choisie (graine facultative : même graine, même partie). */
-  newGame(difficulty = this.selectedDifficulty, seed) {
-    const game = SudokuGame.fromGenerator(difficulty, seed, this._gameOptions);
-    game.code = canonicalCode(makeCode(difficulty, game.seed));
+  /** Nouvelle partie de la difficulté choisie, classique ou Jigsaw (graine facultative : même graine, même partie). */
+  newGame(difficulty = this.selectedDifficulty, seed, mode = MODE.CLASSIQUE) {
+    const game = mode === MODE.JIGSAW
+      ? SudokuGame.fromJigsaw(difficulty, seed, this._gameOptions)
+      : mode === MODE.HEX
+        ? SudokuGame.fromHex(difficulty, seed, this._gameOptions)
+        : mode === MODE.HEXJIGSAW
+          ? SudokuGame.fromHexJigsaw(difficulty, seed, this._gameOptions)
+          : mode === MODE.PETIT
+            ? SudokuGame.fromPetit(seed, this._gameOptions)
+            : SudokuGame.fromGenerator(difficulty, seed, this._gameOptions);
+    game.code = canonicalCode(makeCode(difficulty, game.seed, mode));
+    return this._begin(game);
+  }
+
+  /**
+   * « Recommencer » une grille terminée : nouvelle partie de la MÊME grille, temps à zéro, SANS rien régénérer (la grille, sa solution et ses régions sont déjà là ;
+   * régénérer un 16×16 prenait jusqu'à 10 s sur le fil principal quand la grille venait d'une sauvegarde). Le code et la graine sont conservés.
+   */
+  restartFinished() {
+    const old = this.game;
+    const b = old.board;
+    const game = new SudokuGame(SudokuBoard.fromFlat(b.fixedValues(), b.solution, b.difficultyCategory, b.regions), this._gameOptions);
+    game.code = old.code;
+    game.seed = old.seed;
+    game.startClock();
     return this._begin(game);
   }
 
   /** Grille du jour (la même pour tous) de la difficulté choisie. */
-  startDaily(difficulty = this.selectedDifficulty, date = localDate()) {
-    return this.newGame(difficulty, dailySeed(date, difficulty));
+  startDaily(difficulty = this.selectedDifficulty, date = localDate(), mode = MODE.CLASSIQUE) {
+    return this.newGame(difficulty, dailySeed(date, difficulty, mode), mode);
   }
 
   /** Meilleur temps déjà obtenu sur la grille du jour d'une difficulté, ou null. */
-  dailyBest(difficulty = this.selectedDifficulty, date = localDate()) {
-    return bestFor(this.stats.games, canonicalCode(dailyCode(date, difficulty)));
+  dailyBest(difficulty = this.selectedDifficulty, date = localDate(), mode = MODE.CLASSIQUE) {
+    return bestFor(this.stats.games, canonicalCode(dailyCode(date, difficulty, mode)));
   }
 
   /**
@@ -154,7 +198,7 @@ export class SudokuSession {
    */
   startFrom(text) {
     const c = parseCode(text);
-    if (c) return this.newGame(c.difficulty, c.seed);
+    if (c) return this.newGame(c.difficulty, c.seed, c.mode);
     const game = text.trim().startsWith('#') ? SudokuGame.fromAscii(text.trim(), this._gameOptions) : SudokuGame.fromString(text, this._gameOptions);
     return this._begin(game);
   }
@@ -178,7 +222,7 @@ export class SudokuSession {
     try { SudokuBoard.fromJson(data); } catch { return null; }   // une sauvegarde qui ne se relit pas n'est pas « reprenable »
     const difficulty = PLAYABLE.includes(data.difficulty_category) ? data.difficulty_category : null;
     const elapsed = typeof data.time_elapsed === 'number' && data.time_elapsed >= 0 ? data.time_elapsed : null;
-    return { difficulty, elapsed, code: canonicalCode(data.code) };
+    return { difficulty, elapsed, code: canonicalCode(data.code), mode: data.size === 4 ? MODE.PETIT : data.size === 16 ? (typeof data.regions === 'string' ? MODE.HEXJIGSAW : MODE.HEX) : typeof data.regions === 'string' ? MODE.JIGSAW : MODE.CLASSIQUE };
   }
 
   /** Reprend la partie sauvegardée, si elle existe et est lisible. Renvoie true si une partie est reprise. */
@@ -229,10 +273,12 @@ export class SudokuSession {
     this._remove(KEY_SAVE);
     const t = g.totalTimePlayed();
     const d = g.difficulty;
-    const old = this.highscores[d];
+    const mode = g.board.isPetit ? MODE.PETIT : g.board.isHex ? (g.board.isJigsaw ? MODE.HEXJIGSAW : MODE.HEX) : g.board.isJigsaw ? MODE.JIGSAW : MODE.CLASSIQUE;
+    const scores = this.highscoresOf(mode);
+    const old = scores[d];
     const record = old === undefined || old > t;
-    if (record) this.highscores[d] = t;
-    this.stats = addGame(this.stats, { d: localDate(), t, n: d, c: g.code ?? null }).stats;
+    if (record) scores[d] = t;
+    this.stats = addGame(this.stats, { d: localDate(), t, n: d, c: g.code ?? null, ...(mode !== MODE.CLASSIQUE ? { m: mode } : {}) }).stats;
     this.saveData();
     return record;
   }
@@ -241,6 +287,10 @@ export class SudokuSession {
   resetStats() {
     this.stats = normalizeStats(null);
     this.highscores = {};
+    this.highscoresJigsaw = {};
+    this.highscoresHex = {};
+    this.highscoresHexJigsaw = {};
+    this.highscoresPetit = {};
     this.saveData();
   }
 
@@ -300,13 +350,15 @@ export class SudokuSession {
     const out = { cells: new Set(), sameValue: new Set(), sameEarmark: new Map() };
     if (selected == null || selected < 0) return out;
     const { highlightRowColumn, highlightBlock, highlightNumbers } = this.preferences;
-    for (const q of ALIGNED21[selected]) {
-      const sameLine = rowOf(q) === rowOf(selected) || colOf(q) === colOf(selected);
+    for (const q of g.board.aligned21[selected]) {
+      const sameLine = g.board.rowOf(q) === g.board.rowOf(selected) || g.board.colOf(q) === g.board.colOf(selected);
       if ((highlightRowColumn && sameLine) || (highlightBlock && !sameLine)) out.cells.add(q);
     }
+    // Jigsaw : une région irrégulière peut longer la ligne ou la colonne de la case ; « région » surligne toutes ses cases
+    if (highlightBlock && g.board.isJigsaw) for (const q of g.board.blocks[g.board.regions[selected]]) out.cells.add(q);
     const v = g.board.value[selected];
     if (highlightNumbers && v !== -1) {
-      for (let q = 0; q < 81; q++) {
+      for (let q = 0; q < g.board.N; q++) {
         if (g.board.value[q] === v) out.sameValue.add(q);
         else if (g.board.value[q] === -1 && g.board.isEarmarkEnabled(q, v)) out.sameEarmark.set(q, v);
       }
@@ -324,7 +376,7 @@ export class SudokuSession {
       if (this.preferences.duplicateWarnings && b.broken.has(p)) valueError = true;
       else if (this.preferences.solutionWarnings) valueError = v !== b.solution[p];
     } else if (this.preferences.earmarkWarnings) {
-      for (let n = 0; n < 9; n++) if (b.isEarmarkEnabled(p, n) && !b.isEarmarkPossible(p, n)) earmarkErrors.push(n);
+      for (let n = 0; n < b.n; n++) if (b.isEarmarkEnabled(p, n) && !b.isEarmarkPossible(p, n)) earmarkErrors.push(n);
     }
     return { valueError, earmarkErrors };
   }

@@ -153,7 +153,7 @@ await section('Page d\'accueil, nouvelle partie, retour à l\'accueil', async ()
   const grid = () => ev(`[...document.querySelectorAll('#board .cell')].map((c) => c.textContent).join('|')`);
   check('au démarrage : la page d\'accueil, pas la grille', await homeShown());
   check('titre et logo', await ev(`document.getElementById('home-title').textContent === '5ud0ku' && document.querySelector('#logo svg') !== null`));
-  check('sans partie : exactement Nouvelle partie, Options, Statistiques, Aide', await ev(`[...document.querySelectorAll('#home .homemenu button')].filter((b) => !b.hidden).map((b) => b.textContent).join('|')`) === 'Nouvelle partie|Options|Statistiques|Aide');
+  check('sans partie : exactement Nouvelle partie, Options, Statistiques, Aide', await ev(`[...document.querySelectorAll('#home .homemenu button')].filter((b) => !b.hidden).map((b) => b.textContent).join('|')`) === 'Nouvelle partie|Options|Statistiques|Aide|Quitter');
   const foot = await text('#h-ver');
   check('pied de page, 1re ligne : version, auteur, date, licence', /^v\d+\.\d+\.\d+ - développé par Drusus - \d{4}-\d\d-\d\d - GPL3\+$/.test(foot), foot);
   const insp = await text('#h-inspired');
@@ -179,8 +179,8 @@ await section('Page d\'accueil, nouvelle partie, retour à l\'accueil', async ()
     };
   })()`);
   const c0 = lay.iw / 2;
-  check('accueil : quatre boutons (sans partie) de même largeur, min(78vw, 300px), centrés', lay.n === 4 && lay.widths.every((w) => w === Math.min(Math.round(lay.iw * 0.78), 300)) && lay.centres.every((x) => Math.abs(x - c0) <= 2), JSON.stringify([lay.n, lay.widths, lay.centres]));
-  check('accueil : boutons de même hauteur, 12 px entre eux', new Set(lay.heights).size === 1 && lay.gaps.every((g) => g === 12), JSON.stringify([lay.heights, lay.gaps]));
+  check('accueil : cinq boutons (sans partie) de même largeur, min(78vw, 300px), centrés', lay.n === 5 && lay.widths.every((w) => w === Math.min(Math.round(lay.iw * 0.78), 300)) && lay.centres.every((x) => Math.abs(x - c0) <= 2), JSON.stringify([lay.n, lay.widths, lay.centres]));
+  check('accueil : boutons de même hauteur, 12 px entre eux', new Set(lay.heights.slice(0, 4)).size === 1 && lay.gaps.every((g) => g === 12), JSON.stringify([lay.heights, lay.gaps]));
   check('accueil : texte des boutons 1,15 rem avec 12 px de marge intérieure', lay.fontPx.every((f) => Math.abs(f - 18.4) < 0.2) && lay.pad.every((p) => p === 12), JSON.stringify([lay.fontPx, lay.pad]));
   check('accueil : titre de 2,6 rem, logo et titre centrés', Math.abs(lay.h1Px - 41.6) < 0.2 && Math.abs(lay.logoCentre - c0) <= 2 && Math.abs(lay.h1Centre - c0) <= 2, JSON.stringify([lay.h1Px, lay.logoCentre, lay.h1Centre]));
   check('accueil : logo de 21 % de la hauteur (96 à 200 px)', Math.abs(lay.logoH - Math.min(200, Math.max(96, Math.round(lay.ih * 0.21)))) <= 2, JSON.stringify([lay.logoH, lay.ih]));
@@ -220,7 +220,7 @@ await section('Page d\'accueil, nouvelle partie, retour à l\'accueil', async ()
   const before = await grid();
   await click('#b-menu'); await click('#m-home');
   check('menu > Accueil : retour à la page d\'accueil', await homeShown());
-  check('« Continuer » apparaît avec la difficulté, entre Nouvelle partie et Options', await ev(`[...document.querySelectorAll('#home .homemenu button')].filter((b) => !b.hidden).map((b) => b.textContent).join('|')`) === 'Nouvelle partie|Continuer|Options|Statistiques|Aide' && await ev(`(() => { const hs = [...document.querySelectorAll('#home .homemenu button')].filter((b) => !b.hidden).map((b) => Math.round(b.getBoundingClientRect().height)); return new Set(hs).size === 1 && hs.length === 5; })()`));
+  check('« Continuer » apparaît avec la difficulté, entre Nouvelle partie et Options', await ev(`[...document.querySelectorAll('#home .homemenu button')].filter((b) => !b.hidden).map((b) => b.textContent).join('|')`) === 'Nouvelle partie|Continuer|Options|Statistiques|Aide|Quitter' && await ev(`(() => { const hs = [...document.querySelectorAll('#home .homemenu button')].filter((b) => !b.hidden).map((b) => Math.round(b.getBoundingClientRect().height)); return new Set(hs.slice(0, 5)).size === 1 && hs.length === 6; })()`));
   await shot('0b-accueil-continuer');
   await click('#h-continue');
   check('Continuer : la même grille', !(await homeShown()) && await grid() === before);
@@ -440,7 +440,7 @@ await section('Pause, menu, options, aide, à propos', async () => {
   await click('#b-menu');
   check('menu ouvert', await isOpen('menu'));
   await click('#m-options');
-  check('options ouvertes : 8 cases à cocher, aucune pour le chronomètre', await isOpen('options') && await ev(`document.querySelectorAll('#options-body input[type=checkbox]').length`) === 8 && !/hronom/.test(await text('#options-body')));
+  check('options ouvertes : 9 cases à cocher, aucune pour le chronomètre', await isOpen('options') && await ev(`document.querySelectorAll('#options-body input[type=checkbox]').length`) === 9 && !/hronom/.test(await text('#options-body')));
   await click('#options-close');
   // bandeau de la partie, comme 1-5731N : menu à gauche, temps (accent) avec code et difficulté en petit dessous, pause à droite
   const bar = await ev(`(() => {
@@ -453,11 +453,14 @@ await section('Pause, menu, options, aide, à propos', async () => {
       stacked: r('clock').bottom <= r('g-code').top + 2 && r('g-code').bottom <= r('g-level').top + 2, hasTitle: h.querySelector('h1') !== null,
       level: document.getElementById('g-level').textContent, time: clock.textContent };
   })()`);
-  check('bandeau : menu, infos, espace, pause, sans titre', bar.kids.join(',') === 'b-menu,g-info,grow,b-pause' && !bar.hasTitle, bar.kids.join(','));
+  check('bandeau : menu, infos, espace, plein écran, pause, sans titre', bar.kids.join(',') === 'b-menu,g-info,grow,b-full,b-pause' && !bar.hasTitle, bar.kids.join(','));
   check('bandeau : menu à gauche, infos juste après, pause à droite', bar.menuX < bar.infoX && bar.infoX < bar.pauseX, JSON.stringify([bar.menuX, bar.infoX, bar.pauseX]));
   check('chronomètre toujours affiché, en couleur d\'accent', bar.clockVisible && /^\d+:\d\d$/.test(bar.time), bar.time);
   check('temps, code de la grille et difficulté sont empilés', bar.stacked && bar.level === 'Facile', JSON.stringify([bar.stacked, bar.level]));
   check('le bandeau ne grandit pas (hauteur du bouton)', bar.hH <= 60, String(bar.hH));
+  // taille explicite : la hauteur utile d'une fenêtre « 430×860 » dépend du navigateur (717 px chez Claudius, 765 px ici) ; le contrôle porte sur la mise en page, pas sur la fenêtre
+  await send('Emulation.setDeviceMetricsOverride', { width: 500, height: 800, deviceScaleFactor: 1, mobile: true });
+  await sleep(300);
   const fit = await ev(`({ sh: document.documentElement.scrollHeight, ih: window.innerHeight, iw: window.innerWidth, pad: Math.round(document.getElementById('pad').getBoundingClientRect().bottom) })`);
   check('partie sans défilement à la taille par défaut du banc', fit.sh <= fit.ih + 2 && fit.pad <= fit.ih, JSON.stringify(fit));
   await shot('3b-bandeau');
@@ -539,6 +542,47 @@ await section('Code de grille, grille du jour', async () => {
   await click('#h-continue'); await sleep(200);
   check('le code est gardé après rechargement', (await codeShown()) === code);
   void otherBoard;
+});
+
+await section('Mode Jigsaw : choix du type de grille, traits de régions, code, partage, retour au classique', async () => {
+  const thick = () => ev(`[...document.querySelectorAll('#board .cell')].map((c) => (c.classList.contains('cb') ? 1 : 0) + (c.classList.contains('rb') ? 2 : 0)).join('')`);
+  const codeShown = () => ev(`document.getElementById('g-code').hidden ? null : document.getElementById('g-code').textContent`);
+  await click('#b-menu'); await click('#m-home'); await click('#h-new');
+  check('« Nouvelle partie » propose Taille (4×4, 9×9, 16×16) et Type (classique, puzzle)', await ev(`document.querySelectorAll('#sizes input').length`) === 3 && await ev(`document.querySelectorAll('#types input').length`) === 2);
+  check('chaque choix tient sur une seule ligne', await ev(`['sizes', 'types'].every((id) => { const t = [...document.querySelectorAll('#' + id + ' label')].map((l) => Math.round(l.getBoundingClientRect().top)); return t.length >= 2 && t.every((x) => x === t[0]); })`));
+  check('l\'indication Jigsaw est cachée tant que Classique est choisi', await ev(`document.getElementById('new-mode-hint').hidden`) === true);
+  await ev(`document.querySelector('#types input[value="puzzle"]').click()`);
+  check('choisir Jigsaw montre son indication', await ev(`document.getElementById('new-mode-hint').hidden`) === false);
+  await click('#new-start'); await sleep(1500);
+  const code = (await codeShown() ?? '').replace('Grille ', '');
+  check('un code Jigsaw s\'affiche (symbole de difficulté 5 à 8)', /^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(code), code);
+  check('le niveau affiché porte « Puzzle »', /Puzzle/.test(await text('#g-level')), await text('#g-level'));
+  const t1 = await thick();
+  const classic = await ev(`[...document.querySelectorAll('#board .cell')].map((c, p) => (p % 9 === 2 || p % 9 === 5 ? 1 : 0) + (Math.floor(p / 9) === 2 || Math.floor(p / 9) === 5 ? 2 : 0)).join('')`);
+  check('les traits épais ne sont plus ceux des carrés 3×3', t1 !== classic);
+  await shot('15-jigsaw');
+  await click('#b-menu'); await click('#m-share');
+  check('le partage « # » de l\'amont est caché pour une grille Jigsaw', await ev(`document.getElementById('share-wrap-hash').hidden`) === true);
+  await click('#share-close');
+  // le code Jigsaw redonne la même grille
+  const given = () => ev(`[...document.querySelectorAll('#board .cell')].map((c) => c.classList.contains('given') ? c.textContent : '.').join('')`);
+  const g1 = await given();
+  await click('#b-menu'); await click('#m-enter');
+  await ev(`document.getElementById('enter-field').value = ${JSON.stringify(code)}`);
+  await click('#enter-start'); await sleep(1500);
+  check('saisir le code Jigsaw redonne la même grille et les mêmes régions', await given() === g1 && await thick() === t1);
+  // rechargement : la partie Jigsaw est reprise avec ses régions
+  await gotoPage(`${BASE}/index.html`);
+  await sleep(700);
+  await click('#h-continue'); await sleep(500);
+  check('rechargement : la partie Jigsaw est reprise avec ses régions', await thick() === t1 && /Puzzle/.test(await text('#g-level')));
+  // retour au classique : traits 3×3
+  await click('#b-menu'); await click('#m-home'); await click('#h-new');
+  check('le type choisi (puzzle) est retenu à la réouverture', await ev(`document.querySelector('#types input[value="puzzle"]').checked`) === true);
+  await ev(`document.querySelector('#types input[value="classique"]').click()`);
+  await click('#new-start'); await sleep(900);
+  check('retour au classique : traits des carrés 3×3', await thick() === classic);
+  check('retour au classique : le niveau n\'affiche pas « Jigsaw »', !/Puzzle/.test(await text('#g-level')));
 });
 
 await section('Reprise après rechargement', async () => {
@@ -662,6 +706,212 @@ await section('Victoire seulement avec des valeurs ordinaires : une valeur d\'es
   await sleep(300);
   check('confirmer la valeur d\'essai achève la grille : « Bravo »', await isOpen('done'));
   await click('#done-close');
+});
+
+await section("Plein écran : touche du bandeau, option « Démarrer en plein écran » active par défaut", async () => {
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  await reloadWith({});
+  await click('#h-new'); await click('#new-start'); await sleep(900);
+  const dispo = await ev(`!!document.fullscreenEnabled`);
+  const cache = await ev(`document.getElementById('b-full').hidden`);
+  check('la touche plein écran est dans le bandeau (cachée seulement si le navigateur ne le permet pas)', cache === !dispo, `dispo=${dispo} cachée=${cache}`);
+  if (dispo) check('la touche porte un libellé', /\S/.test(await ev(`document.getElementById('b-full').getAttribute('aria-label')`)));
+  await click('#b-menu'); await click('#m-options');
+  const coche = await ev(`(() => { const l = [...document.querySelectorAll('#options-body label.opt')].find((x) => /plein/i.test(x.textContent)); return l ? l.querySelector('input').checked : null; })()`);
+  check("l'option « Démarrer en plein écran » est cochée par défaut", dispo ? coche === true : coche === null, String(coche));
+  await click('#options-close');
+});
+
+await section("Jigsaw 16×16 : Taille 16×16 + Type puzzle, régions irrégulières, niveau affiché, reprise, code", async () => {
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  await reloadWith({});
+  await click('#h-new');
+  await ev(`document.querySelector('#sizes input[value="16"]').click()`);
+  await ev(`document.querySelector('#types input[value="puzzle"]').click()`);
+  check("les deux indications (16×16 et puzzle) s'affichent", await ev(`document.getElementById('new-mode-hint').hidden`) === false && (await text('#new-mode-hint')).length > 60);
+  await shot('19-nouvelle-partie-taille-type');
+  await click('#new-start'); await sleep(6000);
+  const m = await ev(`(() => {
+    const c = [...document.querySelectorAll('#board .cell')];
+    const cb = [...new Set(c.map((x, p) => (x.classList.contains('cb') ? p % 16 : -1)).filter((x) => x >= 0))].sort((a, b) => a - b).join(',');
+    return { cells: c.length, cb, level: document.getElementById('g-level').textContent, sh: document.documentElement.scrollHeight, ih: innerHeight, pad: document.querySelectorAll('#pad button').length };
+  })()`);
+  check('256 cases, pavé de 16 touches', m.cells === 256 && m.pad === 16, JSON.stringify(m));
+  check('traits épais irréguliers (autres colonnes que 3, 7, 11)', m.cb !== '3,7,11' && m.cb.split(',').length > 3, m.cb);
+  check('niveau « 16×16 Puzzle · Facile »', /16×16 Puzzle · Facile/.test(m.level), m.level);
+  check("tout tient dans l'écran", m.sh <= m.ih + 2, JSON.stringify(m));
+  await shot('18-hex-puzzle');
+  const avant = await ev(`[...document.querySelectorAll('#board .cell')].map((c) => (c.classList.contains('given') ? c.textContent : '.') + (c.classList.contains('cb') ? '|' : '') + (c.classList.contains('rb') ? '_' : '')).join('')`);
+  await gotoPage(`${BASE}/index.html`); await sleep(800);
+  await click('#h-continue'); await sleep(3000);
+  const apres = await ev(`[...document.querySelectorAll('#board .cell')].map((c) => (c.classList.contains('given') ? c.textContent : '.') + (c.classList.contains('cb') ? '|' : '') + (c.classList.contains('rb') ? '_' : '')).join('')`);
+  check('rechargement : mêmes indices et mêmes régions', apres === avant);
+  const code = (await text('#g-code')).replace('Grille ', '');
+  await click('#b-menu'); await click('#m-enter');
+  await ev(`document.getElementById('enter-field').value = ${JSON.stringify(code)}`);
+  await click('#enter-start'); await sleep(6000);
+  const rejoue = await ev(`[...document.querySelectorAll('#board .cell')].map((c) => (c.classList.contains('given') ? c.textContent : '.') + (c.classList.contains('cb') ? '|' : '') + (c.classList.contains('rb') ? '_' : '')).join('')`);
+  check('saisir le code redonne la même grille et les mêmes régions', rejoue === avant);
+  // retour au classique 9×9
+  await click('#b-menu'); await click('#m-home'); await click('#h-new');
+  await ev(`document.querySelector('#sizes input[value="9"]').click()`);
+  await ev(`document.querySelector('#types input[value="classique"]').click()`);
+  await click('#new-start'); await sleep(900);
+  check('retour au classique 9×9 : 81 cases', await ev(`document.querySelectorAll('#board .cell').length`) === 81);
+});
+
+await section("4×4 : petite grille de débutant (une seule difficulté, chiffres 1 à 4), puzzle grisé, reprise, code", async () => {
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  await reloadWith({});
+  // une partie 9×9 de niveau Difficile fixe le choix de difficulté ; une partie 4×4 ne doit pas l'effacer (audit F4)
+  await click('#h-new');
+  await ev(`document.querySelector('#diffs input[value="3"]').click()`);
+  await click('#new-start'); await sleep(900);
+  await click('#b-menu'); await click('#m-home');
+  await click('#h-new');
+  await ev(`document.querySelector('#types input[value="puzzle"]').click()`);
+  await ev(`document.querySelector('#sizes input[value="4"]').click()`);
+  check('4×4 : « puzzle » est grisé et « classique » coché', await ev(`document.querySelector('#types input[value="puzzle"]').disabled`) === true && await ev(`document.querySelector('#types input[value="classique"]').checked`) === true);
+  check('4×4 : une seule difficulté, la liste des niveaux est cachée', await ev(`getComputedStyle(document.getElementById('diffs')).display`) === 'none' && await ev(`document.getElementById('new-best-petit').hidden`) === false);
+  check("4×4 : phrase d'explication", /4×4/.test(await text('#new-mode-hint')));
+  await shot('20-nouvelle-partie-4x4');
+  await click('#new-start'); await sleep(900);
+  const m = await ev(`(() => {
+    const c = [...document.querySelectorAll('#board .cell')];
+    const b = document.getElementById('board').getBoundingClientRect();
+    return { cells: c.length, pad: [...document.querySelectorAll('#pad button')].map((x) => x.textContent).join(''), cb: [...new Set(c.map((x, p) => (x.classList.contains('cb') ? p % 4 : -1)).filter((x) => x >= 0))].join(','),
+      level: document.getElementById('g-level').textContent, code: document.getElementById('g-code').textContent, given: c.filter((x) => x.classList.contains('given')).length,
+      w: Math.round(b.width), h: Math.round(b.height), sh: document.documentElement.scrollHeight, ih: innerHeight };
+  })()`);
+  check('4×4 : 16 cases et pavé 1 à 4', m.cells === 16 && m.pad === '1234', JSON.stringify(m));
+  check('4×4 : trait épais au milieu (colonne 1, rangée 1) et au moins 7 indices', m.cb === '1' && m.given >= 7, JSON.stringify(m));
+  check('4×4 : niveau « 4×4 · Facile », code de type 4', /4×4 · Facile/.test(m.level) && /^411/.test(m.code.replace(/^Grille /, '').replace('-', '')), m.level + ' ' + m.code);
+  check("4×4 : plateau carré, tout tient dans l'écran", Math.abs(m.w - m.h) <= 2 && m.sh <= m.ih + 2, JSON.stringify(m));
+  await shot('21-4x4');
+  const vide = await ev(`[...document.querySelectorAll('#board .cell')].findIndex((c) => !c.classList.contains('given'))`);
+  await ev(`document.querySelectorAll('#board .cell')[${vide}].click()`);
+  await key('5');
+  check('4×4 : la touche 5 est ignorée', await ev(`document.querySelectorAll('#board .cell')[${vide}].textContent`) === '');
+  await key('3');
+  check('4×4 : la touche 3 pose un 3', await ev(`document.querySelectorAll('#board .cell')[${vide}].textContent`) === '3');
+  await key('n'); await key('1'); await key('2');
+  await key('Backspace'); // efface la valeur ; en mode notes la touche 3 a remplacé... on contrôle seulement qu'il n'y a pas d'erreur
+  const avant = await ev(`[...document.querySelectorAll('#board .cell')].map((c) => (c.classList.contains('given') ? c.textContent : '.')).join('')`);
+  await gotoPage(`${BASE}/index.html`); await sleep(800);
+  await click('#h-continue'); await sleep(800);
+  check('4×4 : la partie est reprise après rechargement', await ev(`document.querySelectorAll('#board .cell').length`) === 16 && await ev(`[...document.querySelectorAll('#board .cell')].map((c) => (c.classList.contains('given') ? c.textContent : '.')).join('')`) === avant);
+  const code = (await text('#g-code')).replace('Grille ', '');
+  await click('#b-menu'); await click('#m-enter');
+  await ev(`document.getElementById('enter-field').value = ${JSON.stringify(code)}`);
+  await click('#enter-start'); await sleep(900);
+  check('4×4 : saisir le code redonne la même grille', await ev(`[...document.querySelectorAll('#board .cell')].map((c) => (c.classList.contains('given') ? c.textContent : '.')).join('')`) === avant);
+  await click('#b-menu'); await click('#m-home'); await click('#h-new');
+  check('4×4 : la taille choisie est retenue', await ev(`document.querySelector('#sizes input[value="4"]').checked`) === true);
+  await ev(`document.querySelector('#sizes input[value="9"]').click()`);
+  check('la difficulté choisie avant le 4×4 (Difficile) est conservée', await ev(`document.querySelector('#diffs input:checked').value`) === '3');
+  check("retour à 9×9 : « puzzle » n'est plus grisé, les niveaux reviennent", await ev(`document.querySelector('#types input[value="puzzle"]').disabled`) === false && await ev(`document.getElementById('diffs').hidden`) === false);
+  await click('#new-start'); await sleep(900);
+  check('retour au classique 9×9 : 81 cases', await ev(`document.querySelectorAll('#board .cell').length`) === 81);
+});
+
+await section("Saisie d'un code Jigsaw 16×16 (audit M2) : « Génération… » et boutons inactifs pendant le calcul, un seul calcul", async () => {
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  await reloadWith({});
+  const code = await ev(`(async () => { const { makeCode } = await import('/src/code.js'); return makeCode(4, 4242, 'hexjigsaw'); })()`);
+  await click('#h-new'); await click('#new-enter');
+  await ev(`document.getElementById('enter-field').value = ${JSON.stringify(code)}`);
+  await ev(`document.getElementById('enter-start').click()`);
+  const pendant = await ev(`({ commencer: document.getElementById('enter-start').disabled, fermer: document.getElementById('enter-close').disabled, texte: document.getElementById('enter-start').textContent })`);
+  check('pendant la génération : « Commencer » et « Fermer » inactifs, le bouton dit « Génération… »', pendant.commencer === true && pendant.fermer === true && /…/.test(pendant.texte), JSON.stringify(pendant));
+  await sleep(9000);
+  check("la grille s'ouvre ensuite (256 cases) et la boîte est fermée", await ev(`document.querySelectorAll('#board .cell').length`) === 256 && await ev(`document.getElementById('enter').open`) === false);
+});
+
+await section("Paysage : plateau d'un côté, bandeau + outils + pavé de l'autre, tout visible sans défilement", async () => {
+  for (const [w, h] of [[844, 390], [667, 375], [915, 412], [1280, 720]]) {
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile: true });
+    await reloadWith({});
+    await click('#h-new'); await click('#new-start'); await sleep(900);
+    const m = await ev(`(() => {
+      const r = (s) => { const b = document.querySelector(s).getBoundingClientRect(); return { l: b.left, r: b.right, t: b.top, b: b.bottom }; };
+      return { board: r('#boardwrap'), head: r('header'), tools: r('#tools'), pad: r('#pad'), w: innerWidth, h: innerHeight, sy: document.documentElement.scrollHeight };
+    })()`);
+    const ok = m.board.r <= m.head.l + 1 && m.board.r <= m.pad.l + 1 && m.head.t < m.tools.t && m.tools.b <= m.pad.t + 1;
+    check(`${w}×${h} : le plateau est à gauche, le bandeau, les outils et le pavé à droite`, ok, JSON.stringify(m));
+    check(`${w}×${h} : plateau carré et tout tient dans l'écran`, Math.abs((m.board.r - m.board.l) - (m.board.b - m.board.t)) <= 1 && m.pad.b <= m.h + 1 && m.board.b <= m.h + 1 && m.sy <= m.h + 1, JSON.stringify(m));
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  await reloadWith({});
+  await click('#h-new'); await click('#new-start'); await sleep(900);
+  const v = await ev(`(() => { const a = document.querySelector('#boardwrap').getBoundingClientRect(), b = document.querySelector('header').getBoundingClientRect(); return b.bottom <= a.top + 1; })()`);
+  check('portrait : le bandeau reste au-dessus du plateau', v === true);
+});
+
+await section("16×16 : choix du type de grille, plateau de 256 cases, pavé 0 à F, clavier, notes 4×4, génération par Worker, reprise", async () => {
+  for (const [w, h] of [[390, 844], [844, 390]]) {
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile: true });
+    await reloadWith({});
+    await click('#h-new');
+    check(w + '×' + h + ' : Taille et Type tiennent chacun sur une ligne', await ev(`['sizes', 'types'].every((id) => { const t = [...document.querySelectorAll('#' + id + ' label')].map((l) => Math.round(l.getBoundingClientRect().top)); return t.length >= 2 && t.every((x) => x === t[0]); })`));
+    await ev(`document.querySelector('#sizes input[value="16"]').click()`);
+    check('choisir 16×16 montre son indication', await ev(`document.getElementById('new-mode-hint').hidden`) === false && /16/.test(await text('#new-mode-hint')));
+    await click('#new-start'); await sleep(2500);
+    const m = await ev(`(() => {
+      const c = [...document.querySelectorAll('#board .cell')];
+      const r = c[0].getBoundingClientRect(), b = document.getElementById('board').getBoundingClientRect();
+      const pad = [...document.querySelectorAll('#pad button')].map((x) => x.textContent).join('');
+      const cb = c.map((x, p) => (x.classList.contains('cb') ? p % 16 : -1)).filter((x) => x >= 0);
+      const rb = c.map((x, p) => (x.classList.contains('rb') ? Math.floor(p / 16) : -1)).filter((x) => x >= 0);
+      return { cells: c.length, pad, cbCols: [...new Set(cb)].join(','), rbRows: [...new Set(rb)].join(','), side: Math.round(r.width), board: Math.round(b.width), bh: Math.round(b.height),
+        level: document.getElementById('g-level').textContent, code: document.getElementById('g-code').textContent, sh: document.documentElement.scrollHeight, ih: innerHeight,
+        padBottom: Math.round(document.getElementById('pad').getBoundingClientRect().bottom) };
+    })()`);
+    check(w + '×' + h + ' : 256 cases et 16 touches 0 à F', m.cells === 256 && m.pad === '0123456789ABCDEF', JSON.stringify(m));
+    check(w + '×' + h + ' : traits épais entre les blocs de 4×4 (colonnes 3, 7, 11 ; rangées 3, 7, 11)', m.cbCols === '3,7,11' && m.rbRows === '3,7,11', `${m.cbCols} / ${m.rbRows}`);
+    check(w + '×' + h + ' : niveau « 16×16 · Facile » et code', /16×16/.test(m.level) && /^[0-9A-Z]{4}-/.test(m.code), m.level + ' ' + m.code);
+    check(w + '×' + h + " : plateau carré, tout tient dans l'écran", Math.abs(m.board - m.bh) <= 2 && m.sh <= m.ih + 2 && m.padBottom <= m.ih, JSON.stringify(m));
+    if (w === 390) await shot('16-hex-portrait'); else await shot('16-hex-paysage');
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  // saisie : touche du pavé, clavier A à F, effacement, notes 4×4
+  const vide = await ev(`[...document.querySelectorAll('#board .cell')].findIndex((c) => !c.classList.contains('given'))`);
+  await ev(`document.querySelectorAll('#board .cell')[${vide}].click()`);
+  await ev(`document.querySelectorAll('#pad button')[11].click()`);
+  check('touche B du pavé : la case affiche B', await ev(`document.querySelectorAll('#board .cell')[${vide}].textContent`) === 'B');
+  await key('f');
+  check('clavier « f » : la case affiche F', await ev(`document.querySelectorAll('#board .cell')[${vide}].textContent`) === 'F');
+  await key('0');
+  check('clavier « 0 » : la case affiche 0 (chiffre du 16×16, pas un effacement)', await ev(`document.querySelectorAll('#board .cell')[${vide}].textContent`) === '0');
+  await key('Backspace');
+  check('Retour arrière : la case est vidée', await ev(`document.querySelectorAll('#board .cell')[${vide}].textContent`) === '');
+  await key('n');
+  await ev(`document.querySelectorAll('#pad button')[0].click()`); await ev(`document.querySelectorAll('#pad button')[15].click()`);
+  check('notes : grille 4×4 de seize emplacements dans la case', await ev(`(() => { const m = document.querySelectorAll('#board .cell')[${vide}].querySelector('.m'); return m ? m.children.length : 0; })()`) === 16);
+  check('notes : « 0 » et « F » notés', await ev(`[...document.querySelectorAll('#board .cell')[${vide}].querySelectorAll('.m i')].map((i) => i.textContent).join('')`) === '0F');
+  await shot('17-hex-notes');
+  await key('n');
+  // reprise après rechargement : la taille et la grille reviennent
+  const avant = await ev(`[...document.querySelectorAll('#board .cell')].map((c) => c.classList.contains('given') ? c.textContent : '.').join('')`);
+  await gotoPage(`${BASE}/index.html`); await sleep(800);
+  await click('#h-continue'); await sleep(1500);
+  const apres = await ev(`[...document.querySelectorAll('#board .cell')].map((c) => c.classList.contains('given') ? c.textContent : '.').join('')`);
+  check('rechargement : la partie 16×16 est reprise (256 cases, mêmes indices)', apres.length === 256 && apres === avant);
+  // partage : pas de « # » en 16×16 ; code 16×16 redonne la grille
+  await click('#b-menu'); await click('#m-share');
+  check("partage : le « # » de l'amont est caché en 16×16", await ev(`document.getElementById('share-wrap-hash').hidden`) === true);
+  await click('#share-close');
+  const code = (await text('#g-code')).replace('Grille ', '');
+  await click('#b-menu'); await click('#m-enter');
+  await ev(`document.getElementById('enter-field').value = ${JSON.stringify(code)}`);
+  await click('#enter-start'); await sleep(2500);
+  const rejoue = await ev(`[...document.querySelectorAll('#board .cell')].map((c) => c.classList.contains('given') ? c.textContent : '.').join('')`);
+  check('saisir le code 16×16 redonne la même grille', rejoue === avant);
+  // retour au classique : 81 cases
+  await click('#b-menu'); await click('#m-home'); await click('#h-new');
+  await ev(`document.querySelector('#sizes input[value="9"]').click()`);
+  await ev(`document.querySelector('#types input[value="classique"]').click()`);
+  await click('#new-start'); await sleep(900);
+  check('retour au classique : 81 cases et pavé 1 à 9', await ev(`document.querySelectorAll('#board .cell').length`) === 81 && await ev(`[...document.querySelectorAll('#pad button')].map((x) => x.textContent).join('')`) === '123456789');
 });
 
 await section('Grille régulière au format téléphone : 9 rangées et 9 colonnes de même taille, avec des notes (défaut de la 1.0.0)', async () => {

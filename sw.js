@@ -8,7 +8,7 @@
  */
 'use strict';
 
-const VERSION = '1.0.1';
+const VERSION = '2.2.1';
 const CACHE = `5ud0ku-${VERSION}`;
 const FILES = [
   './',
@@ -24,6 +24,10 @@ const FILES = [
   'src/code.js',
   'src/game.js',
   'src/generator.js',
+  'src/jigsaw.js',
+  'src/jigsaw_solveur.js',
+  'src/sudoku_n.js',
+  'src/hex_worker.js',
   'src/icons.js',
   'src/lang/index.js',
   'src/lang/ar.js',

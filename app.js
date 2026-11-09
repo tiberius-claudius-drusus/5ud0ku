@@ -9,14 +9,17 @@
  * la grille, relier les gestes (toucher, clavier) à la session et gérer les boîtes de dialogue.
  */
 import { SudokuSession } from './src/session.js';
-import { DIFFICULTY } from './src/generator.js';
-import { SudokuError, ERRORS } from './src/board.js';
+import { moteurDe, memoriserJigsawN } from './src/sudoku_n.js';
+import { DIFFICULTY, randomSeed } from './src/generator.js';
+import { SudokuError, ERRORS, CHIFFRES } from './src/board.js';
 import { t, setDictionary, formatTime } from './src/strings.js';
 import { LANGUAGES, pickLanguage, loadLanguage, directionOf } from './src/lang/index.js';
 import { ICONS } from './src/icons.js';
 import { THEMES, MODES, apply as applyTheme } from './src/themes.js';
-import { localDate } from './src/code.js';
-import { summarize, byDifficulty, recent } from './src/stats.js';
+import { localDate, dailySeed, parseCode } from './src/code.js';
+import { summarize, byDifficulty, recent, modeOf } from './src/stats.js';
+import { REGIONS_CLASSIQUES } from './src/jigsaw.js';
+import { MODE } from './src/code.js';
 import { VERSION, RELEASE_DATE } from './src/version.js';
 import { logoSvg } from './src/logo.js';
 
@@ -68,8 +71,8 @@ function applyTexts() {
   set('m-resume', 'menu.resume'); set('m-home', 'menu.home'); set('m-restart', 'menu.restart'); set('m-share', 'menu.share');
   set('m-enter', 'menu.enter'); set('m-options', 'menu.options'); set('m-help', 'menu.help'); set('m-about', 'menu.about');
   set('home-title', 'app.title');
-  set('h-new', 'home.new'); set('h-stats', 'home.stats'); set('h-options', 'home.options'); set('h-help', 'home.help');
-  set('new-title', 'new.title'); set('new-start', 'new.start'); set('new-cancel', 'dialog.close');
+  set('h-new', 'home.new'); set('h-stats', 'home.stats'); set('h-options', 'home.options'); set('h-help', 'home.help'); set('h-quit', 'home.quit');
+  set('new-title', 'new.title'); set('new-size-lbl', 'new.size'); set('new-type-lbl', 'new.type'); set('new-start', 'new.start'); set('new-cancel', 'dialog.close');
   set('new-daily', 'new.daily'); set('new-enter', 'menu.enter'); set('help-about', 'menu.about');
   $('diffs').setAttribute('aria-label', t('home.diffs'));
   $('logo').innerHTML = logoSvg();
@@ -88,7 +91,7 @@ function applyTexts() {
   set('stats-title', 'stats.title'); set('stats-reset', 'stats.reset'); set('stats-close', 'dialog.close');
   set('enter-title', 'enter.title'); set('enter-text', 'enter.text'); set('enter-start', 'enter.start'); set('enter-close', 'dialog.close');
   set('options-title', 'options.title'); set('options-close', 'dialog.close');
-  set('help-title', 'help.title'); set('help-1', 'help.1'); set('help-2', 'help.2'); set('help-3', 'help.3'); set('help-4', 'help.4'); set('help-close', 'dialog.close');
+  set('help-title', 'help.title'); set('help-1', 'help.1'); set('help-2', 'help.2'); set('help-3', 'help.3'); set('help-4', 'help.4'); set('help-5', 'help.5'); set('help-close', 'dialog.close');
   set('about-title', 'about.title'); set('about-text', 'about.text'); set('about-code', 'about.code'); set('about-licence', 'about.licence'); set('about-close', 'dialog.close');
   $('about-version').textContent = t('about.version', { version: VERSION, date: RELEASE_DATE });
 }
@@ -97,15 +100,34 @@ function applyTexts() {
 
 const cells = [];
 
-function buildBoard() {
+let boardN = 0;   // taille actuellement construite (0 : rien) : 9 ou 16
+
+/** Nom court d'un type de grille pour le niveau affiché et les statistiques (rien pour le classique 9×9). */
+const nomDuMode = (mode) => ({
+  [MODE.JIGSAW]: t('mode.jigsaw'),
+  [MODE.HEX]: t('mode.hex'),
+  [MODE.HEXJIGSAW]: `${t('mode.hex')} ${t('mode.jigsaw')}`,
+  [MODE.PETIT]: t('mode.petit'),
+}[mode] ?? '');
+const modeDe = (board) => (board.isPetit ? MODE.PETIT : board.isHex ? (board.isJigsaw ? MODE.HEXJIGSAW : MODE.HEX) : board.isJigsaw ? MODE.JIGSAW : MODE.CLASSIQUE);
+
+/** Symbole d'une valeur interne : 1 à 9 en 9×9 ; 0 à 9 puis A à F en 16×16. */
+const symbole = (v, n = boardN) => (n === 16 ? CHIFFRES[v] : String(v + 1));
+
+/** (Re)construit les cases et le pavé pour une taille : 81 cases et 9 touches, ou 256 cases et 16 touches. */
+function buildBoard(n = 9) {
+  if (boardN === n) return;
+  boardN = n;
   const board = $('board');
   board.setAttribute('role', 'group');
-  for (let p = 0; p < 81; p++) {
+  board.replaceChildren();
+  cells.length = 0;
+  board.style.setProperty('--n', String(n));
+  board.dataset.n = String(n);
+  for (let p = 0; p < n * n; p++) {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'cell';
-    if (p % 9 === 2 || p % 9 === 5) b.classList.add('cb');
-    if (Math.floor(p / 9) === 2 || Math.floor(p / 9) === 5) b.classList.add('rb');
     b.dataset.p = String(p);
     b.tabIndex = -1;
     b.addEventListener('click', () => select(p));
@@ -113,12 +135,14 @@ function buildBoard() {
     cells.push(b);
   }
   const pad = $('pad');
-  for (let d = 1; d <= 9; d++) {
+  pad.replaceChildren();
+  pad.dataset.n = String(n);
+  for (let d = 0; d < n; d++) {
     const b = document.createElement('button');
     b.type = 'button';
-    b.textContent = String(d);
-    b.setAttribute('aria-label', String(d));
-    b.addEventListener('click', () => input(d - 1));
+    b.textContent = symbole(d, n);
+    b.setAttribute('aria-label', symbole(d, n));
+    b.addEventListener('click', () => input(d));
     pad.append(b);
   }
 }
@@ -126,20 +150,21 @@ function buildBoard() {
 // --- affichage ---
 
 function cellLabel(p, g) {
-  const row = Math.floor(p / 9) + 1, col = (p % 9) + 1;
+  const n = g.board.n;
+  const row = Math.floor(p / n) + 1, col = (p % n) + 1;
   const v = g.board.value[p];
   const parts = [t('game.cell', { row, col })];
   const w = session.warnings(p);   // une erreur ne doit pas passer par la seule couleur : elle est dite au lecteur d'écran
   if (v !== -1) {
-    parts.push(t('game.cell.value', { value: v + 1 }));
+    parts.push(t('game.cell.value', { value: symbole(v) }));
     if (g.board.isFixed(p)) parts.push(t('game.cell.given'));
     else if (g.board.test[p]) parts.push(t('game.cell.test'));
     if (w.valueError) parts.push(t('game.cell.error'));
   } else if (g.board.hasEarmarks(p)) {
     const notes = [];
-    for (let n = 0; n < 9; n++) if (g.board.isEarmarkEnabled(p, n)) notes.push(n + 1);
+    for (let k = 0; k < n; k++) if (g.board.isEarmarkEnabled(p, k)) notes.push(symbole(k));
     parts.push(t('game.cell.notes', { notes: notes.join(' ') }));
-    if (w.earmarkErrors.length) parts.push(t('game.cell.notes.error', { notes: w.earmarkErrors.map((n) => n + 1).join(' ') }));
+    if (w.earmarkErrors.length) parts.push(t('game.cell.notes.error', { notes: w.earmarkErrors.map((k) => symbole(k)).join(' ') }));
   } else {
     parts.push(t('game.cell.empty'));
   }
@@ -149,15 +174,20 @@ function cellLabel(p, g) {
 function renderBoard() {
   const g = session.game;
   const hide = !g || (g.paused && !autoPaused);
-  for (let p = 0; p < 81; p++) {
+  buildBoard(g ? g.board.n : boardN || 9);
+  const n = boardN, N = n * n;
+  const reg = g ? g.board.regions : REGIONS_CLASSIQUES;
+  for (let p = 0; p < N; p++) {
     const el = cells[p];
-    el.className = el.className.split(' ').filter((c) => c === 'cell' || c === 'cb' || c === 'rb').join(' ');
+    el.className = 'cell';
+    if (p % n < n - 1 && reg[p] !== reg[p + 1]) el.classList.add('cb');   // trait épais à droite quand la région change
+    if (p < N - n && reg[p] !== reg[p + n]) el.classList.add('rb');      // et en dessous
     if (!g || hide) { el.innerHTML = ''; el.tabIndex = -1; el.setAttribute('aria-label', ''); continue; }
     el.tabIndex = p === (selected >= 0 ? selected : 0) ? 0 : -1;
   }
   if (!g || hide) return;
   const hl = session.highlights(selected);
-  for (let p = 0; p < 81; p++) {
+  for (let p = 0; p < N; p++) {
     const el = cells[p];
     const v = g.board.value[p];
     const w = session.warnings(p);
@@ -168,13 +198,13 @@ function renderBoard() {
     if (p === selected) el.classList.add('sel');
     if (w.valueError) el.classList.add('err');
     if (v !== -1) {
-      el.innerHTML = `<span class="v">${v + 1}</span>`;
+      el.innerHTML = `<span class="v">${symbole(v)}</span>`;
     } else if (g.board.hasEarmarks(p)) {
       let html = '<span class="m">';
-      for (let n = 0; n < 9; n++) {
-        if (!g.board.isEarmarkEnabled(p, n)) { html += '<i></i>'; continue; }
-        const cls = [w.earmarkErrors.includes(n) ? 'err' : '', hl.sameEarmark.get(p) === n ? 'on-same' : ''].filter(Boolean).join(' ');
-        html += `<i${cls ? ` class="${cls}"` : ''}>${n + 1}</i>`;
+      for (let k = 0; k < n; k++) {
+        if (!g.board.isEarmarkEnabled(p, k)) { html += '<i></i>'; continue; }
+        const cls = [w.earmarkErrors.includes(k) ? 'err' : '', hl.sameEarmark.get(p) === k ? 'on-same' : ''].filter(Boolean).join(' ');
+        html += `<i${cls ? ` class="${cls}"` : ''}>${symbole(k)}</i>`;
       }
       el.innerHTML = `${html}</span>`;
     } else {
@@ -198,7 +228,7 @@ function renderPad(g) {
   const b = g?.board;
   let hint = '';
   let noted = 0;
-  for (let d = 0; d < 9; d++) {
+  for (let d = 0; d < pad.children.length; d++) {
     const btn = pad.children[d];
     const isNoted = usable && b.isEarmarkEnabled(selected, d);
     if (isNoted) noted++;
@@ -244,7 +274,8 @@ function renderChrome() {
   // le chronomètre est toujours affiché (ce n'est pas une option) ; le bouton de droite est la pause
   if (g) {
     $('clock').textContent = formatTime(g.totalTimePlayed());
-    $('g-level').textContent = t(`diff.${g.difficulty}`);
+    const nom = nomDuMode(modeDe(g.board));
+    $('g-level').textContent = nom ? `${nom} · ${t(`diff.${g.difficulty}`)}` : t(`diff.${g.difficulty}`);
     const paused = g.paused && !autoPaused;
     $('b-pause').innerHTML = paused ? ICONS.play : ICONS.pause;
     $('b-pause').setAttribute('aria-label', paused ? t('game.resume') : t('game.pause'));
@@ -254,7 +285,54 @@ function renderChrome() {
   document.documentElement.style.setProperty('--zoom', String(ZOOMS[session.preferences.zoom] ?? 1));
 }
 
-function render() { renderBoard(); renderChrome(); }
+function render() { renderBoard(); renderChrome(); renderFull(); keepAwake(); }
+
+// --- plein écran ---
+
+const canFull = () => !!document.fullscreenEnabled && typeof document.documentElement.requestFullscreen === 'function';
+const isFull = () => !!document.fullscreenElement;
+
+async function toggleFullscreen() {
+  try {
+    if (isFull()) await document.exitFullscreen();
+    else await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+  } catch { /* refusé par le navigateur : rien à faire */ }
+}
+
+/** Touche du bandeau : absente si le navigateur n'a pas de plein écran (iPhone) ; pictogramme et libellé selon l'état. */
+function renderFull() {
+  const b = $('b-full');
+  b.hidden = !canFull();
+  const full = isFull();
+  b.innerHTML = full ? ICONS.shrink : ICONS.expand;
+  const label = t(full ? 'game.fullscreen.exit' : 'game.fullscreen');
+  b.setAttribute('aria-label', label);
+  b.title = label;
+  b.setAttribute('aria-pressed', String(full));
+}
+
+/** Écran allumé pendant qu'une partie court (pas en pause, pas terminée, page visible) : l'économiseur d'écran ne doit pas couper la partie. */
+let wakeLock = null;
+let wakeLockPending = false;   // une demande est en cours : deux render() rapprochés ne doivent pas en lancer deux (le premier verrou ne serait jamais relâché)
+async function keepAwake() {
+  const g = session.game;
+  const want = view === 'game' && document.visibilityState === 'visible' && !!g && !g.paused && !g.finished;
+  try {
+    if (want && !wakeLock && !wakeLockPending && navigator.wakeLock) {
+      wakeLockPending = true;
+      let lock;
+      try { lock = await navigator.wakeLock.request('screen'); } finally { wakeLockPending = false; }
+      const toujours = view === 'game' && document.visibilityState === 'visible' && !!session.game && !session.game.paused && !session.game.finished;
+      if (!toujours) { await lock.release(); return; }   // la partie s'est arrêtée pendant la demande : on rend le verrou
+      wakeLock = lock;
+      lock.addEventListener('release', () => { if (wakeLock === lock) wakeLock = null; });
+    } else if (!want && wakeLock) {
+      const lock = wakeLock;
+      wakeLock = null;
+      await lock.release();
+    }
+  } catch { /* refusé (économie d'énergie) ou non pris en charge : la partie continue normalement */ }
+}
 
 function announce(text) { $('live').textContent = ''; $('live').textContent = text; }
 
@@ -268,7 +346,7 @@ function select(p) {
 
 function input(d) {
   const g = session.game;
-  if (!g || g.paused || selected < 0 || g.board.isFixed(selected)) return;
+  if (!g || g.paused || selected < 0 || g.board.isFixed(selected) || d >= g.board.n) return;
   if (session.mode === 'notes') session.toggleEarmark(selected, d);
   else if (session.mode === 'test') session.testValue(selected, d);
   else session.setValue(selected, d);
@@ -295,10 +373,11 @@ function togglePause() {
 }
 
 function move(dr, dc) {
-  const from = selected < 0 ? 40 : selected;
-  const r = Math.min(8, Math.max(0, Math.floor(from / 9) + dr));
-  const c = Math.min(8, Math.max(0, (from % 9) + dc));
-  select(r * 9 + c);
+  const n = boardN;
+  const from = selected < 0 ? Math.floor(n * n / 2) : selected;
+  const r = Math.min(n - 1, Math.max(0, Math.floor(from / n) + dr));
+  const c = Math.min(n - 1, Math.max(0, (from % n) + dc));
+  select(r * n + c);
 }
 
 document.addEventListener('keydown', (ev) => {
@@ -319,12 +398,16 @@ document.addEventListener('keydown', (ev) => {
     case 'ArrowDown': ev.preventDefault(); move(1, 0); break;
     case 'ArrowLeft': ev.preventDefault(); move(0, -1); break;
     case 'ArrowRight': ev.preventDefault(); move(0, 1); break;
-    case 'Backspace': case 'Delete': case '0': ev.preventDefault(); erase(); break;
+    case 'Backspace': case 'Delete': ev.preventDefault(); erase(); break;
+    case '0': if (boardN === 16) { ev.preventDefault(); input(0); } else { ev.preventDefault(); erase(); } break;   // 16×16 : 0 est un chiffre
     case 'n': case 'N': if (!g?.paused && !g?.finished) toggleMode('notes'); break;
     case 't': case 'T': if (!g?.paused && !g?.finished) toggleMode('test'); break;
     case 'p': case 'P': togglePause(); break;
     default:
-      if (/^[1-9]$/.test(ev.key)) { ev.preventDefault(); input(Number(ev.key) - 1); }
+      if (boardN === 16) {   // chiffres 0 à 9 puis A à F (le 0 est traité plus haut)
+        const v = CHIFFRES.indexOf(ev.key.toUpperCase());
+        if (ev.key.length === 1 && v > 0 && !'nNtTpP'.includes(ev.key)) { ev.preventDefault(); input(v); }
+      } else if (/^[1-9]$/.test(ev.key)) { ev.preventDefault(); input(Number(ev.key) - 1); }
   }
 });
 
@@ -357,18 +440,43 @@ function onCompleted() {
   $('done').showModal();
 }
 
+/**
+ * Grille 16×16 générée par un Web Worker (le niveau 4 prend ~1 s sur un ordinateur, davantage sur un téléphone) puis déposée dans le cache du moteur : la création
+ * de la partie qui suit, dans le fil principal, ne refait pas le calcul. Sans Worker (ou en cas d'échec), on retombe sur le calcul direct dans le fil principal.
+ */
+function genererHexAilleurs(graine, niveau, jigsaw = false) {
+  return new Promise((resolve) => {
+    let w;
+    try { w = new Worker('./src/hex_worker.js', { type: 'module' }); } catch { resolve(); return; }
+    const fini = () => { w.terminate(); resolve(); };
+    w.onmessage = (e) => {
+      if (e.data?.ok) { if (jigsaw) memoriserJigsawN(4, graine, niveau, e.data.grille); else moteurDe(4).memoriser(graine, niveau, e.data.grille); }
+      fini();
+    };
+    w.onerror = fini;
+    w.postMessage({ graine, niveau, jigsaw });
+  });
+}
+
 async function startNew(difficulty, daily = false) {
   $('home').setAttribute('aria-busy', 'true');
   $('busy').hidden = false;
   showGame();                    // la grille est affichée (vide) sous le message « Génération… »
   await new Promise((r) => setTimeout(r, 30));
   try {
-    session.setSelectedDifficulty(difficulty);
+    if (session.selectedMode !== MODE.PETIT) session.setSelectedDifficulty(difficulty);   // le 4×4 n'a qu'une difficulté : on garde le choix des autres types
     selected = -1;
     autoPaused = false;
-    if (daily) session.startDaily(difficulty); else session.newGame(difficulty);
+    const mode = session.selectedMode;
+    let graine;
+    if (mode === MODE.HEX || mode === MODE.HEXJIGSAW) {
+      graine = daily ? dailySeed(localDate(), difficulty, mode) : randomSeed();
+      await genererHexAilleurs(graine, difficulty, mode === MODE.HEXJIGSAW);
+    }
+    if (daily) session.startDaily(difficulty, undefined, mode); else session.newGame(difficulty, graine, mode);
   } catch (e) {
     showHome();
+    window.alert(t('game.generation.failed'));   // échec de génération (très improbable) : un message plutôt qu'un retour muet à l'accueil
     throw e;
   } finally {
     $('busy').hidden = true;
@@ -401,6 +509,7 @@ function showHome() {
   view = 'home';
   document.body.dataset.view = 'home';
   renderHome();
+  keepAwake();
   $((session.game || session.savedInfo()) ? 'h-continue' : 'h-new').focus({ preventScroll: true });
 }
 
@@ -440,19 +549,35 @@ function open(id) { const d = $(id); if (!d.open) d.showModal(); }
 function closeAll() { for (const d of document.querySelectorAll('dialog[open]')) d.close(); }
 
 const chosenDifficulty = () => {
+  if (chosenMode() === MODE.PETIT) return DIFFICULTY.EASY;   // une seule difficulté
   const c = document.querySelector('#diffs input:checked');
   return c ? Number(c.value) : session.selectedDifficulty;
 };
 
+/** Type de grille choisi : la combinaison des deux lignes « Taille » (9×9, 16×16) et « Type » (classique, puzzle). */
+const chosenMode = () => {
+  const taille = document.querySelector('#sizes input:checked')?.value;
+  const type = document.querySelector('#types input:checked')?.value;
+  if (!taille || !type) return session.selectedMode;
+  if (taille === '4') return MODE.PETIT;   // le 4×4 n'existe qu'en classique
+  if (taille === '16') return type === 'puzzle' ? MODE.HEXJIGSAW : MODE.HEX;
+  return type === 'puzzle' ? MODE.JIGSAW : MODE.CLASSIQUE;
+};
+
 function updateDailyInfo() {
-  const best = session.dailyBest(chosenDifficulty());
+  const best = session.dailyBest(chosenDifficulty(), undefined, chosenMode());
   $('new-daily-info').textContent = best === null ? t('new.daily.todo', { date: localDate() }) : t('new.daily.done', { time: formatTime(best) });
 }
 
 /** « Nouvelle partie » : la difficulté (avec son meilleur temps), la grille du jour, ou la saisie d'un code. */
-function openNewGame() {
+function renderDiffs() {
   const box = $('diffs');
   box.replaceChildren();
+  const petit = chosenMode() === MODE.PETIT;
+  box.hidden = petit;   // 4×4 : une seule difficulté, rien à choisir
+  if (petit) { $('new-best-petit').textContent = session.highscoresPetit[1] === undefined ? t('new.none') : t('new.best', { time: formatTime(session.highscoresPetit[1]) }); }
+  $('new-best-petit').hidden = !petit;
+  const scores = session.highscoresOf(chosenMode());
   for (const d of DIFFS) {
     const label = document.createElement('label');
     const radio = document.createElement('input');
@@ -462,20 +587,66 @@ function openNewGame() {
     const name = document.createElement('span');
     name.textContent = t(`diff.${d}`);
     const best = document.createElement('small');
-    best.textContent = session.highscores[d] === undefined ? t('new.none') : t('new.best', { time: formatTime(session.highscores[d]) });
+    best.textContent = scores[d] === undefined ? t('new.none') : t('new.best', { time: formatTime(scores[d]) });
     label.append(radio, name, best);
     box.append(label);
   }
   updateDailyInfo();
+}
+
+/** Phrase d'explication sous les deux choix, propre à la combinaison (rien pour le classique 9×9). */
+function majIndiceMode() {
+  const m = chosenMode();
+  const phrases = [];
+  if (m === MODE.PETIT) phrases.push(t('mode.petit.hint'));
+  else if (m === MODE.HEXJIGSAW) phrases.push(t('mode.hexjigsaw.hint'));
+  else if (m === MODE.HEX) phrases.push(t('mode.hex.hint'));
+  else if (m === MODE.JIGSAW) phrases.push(t('mode.jigsaw.hint'));
+  $('new-mode-hint').textContent = phrases.join(' ');
+  $('new-mode-hint').hidden = phrases.length === 0;
+}
+
+/** Une ligne de deux choix (boutons radio côte à côte) : « Taille » ou « Type ». */
+function ligneDeChoix(boite, nom, choix, actuel) {
+  boite.replaceChildren();
+  for (const [valeur, libelle] of choix) {
+    const label = document.createElement('label');
+    const radio = document.createElement('input');
+    radio.type = 'radio'; radio.name = nom; radio.value = valeur;
+    radio.checked = valeur === actuel;
+    radio.addEventListener('change', () => {
+      // 4×4 : classique seulement (le choix « puzzle » est grisé et ramené à « classique »)
+      const petit = document.querySelector('#sizes input:checked')?.value === '4';
+      const puzzle = document.querySelector('#types input[value="puzzle"]');
+      if (puzzle) { puzzle.disabled = petit; puzzle.closest('label').classList.toggle('off', petit); if (petit) document.querySelector('#types input[value="classique"]').checked = true; }
+      majIndiceMode();
+      renderDiffs();   // les meilleurs temps affichés suivent le type de grille
+    });
+    const span = document.createElement('span');
+    span.textContent = libelle;
+    label.append(radio, span);
+    boite.append(label);
+  }
+}
+
+function openNewGame() {
+  const m = session.selectedMode;
+  ligneDeChoix($('sizes'), 'size', [['4', '4×4'], ['9', '9×9'], ['16', '16×16']], m === MODE.PETIT ? '4' : m === MODE.HEX || m === MODE.HEXJIGSAW ? '16' : '9');
+  ligneDeChoix($('types'), 'type', [['classique', t('mode.classic')], ['puzzle', t('mode.jigsaw')]], m === MODE.JIGSAW || m === MODE.HEXJIGSAW ? 'puzzle' : 'classique');
+  const puzzle = document.querySelector('#types input[value="puzzle"]');
+  if (puzzle) { puzzle.disabled = m === MODE.PETIT; puzzle.closest('label').classList.toggle('off', m === MODE.PETIT); }
+  majIndiceMode();
+  renderDiffs();
   open('newgame');
 }
 
 function openShare() {
   const g = session.game;
   if (!g) return;
-  $('share-code').textContent = g.board.fixedToAscii();
+  $('share-code').textContent = g.board.supportsHash ? g.board.fixedToAscii() : '';
   $('share-code5').textContent = g.code ?? '';
   $('share-wrap5').hidden = !g.code;
+  $('share-wrap-hash').hidden = !g.board.supportsHash;   // le partage « # » de l'amont ne sait décrire que les carrés 3×3
   $('share-copy').textContent = t('share.copy');
   $('share-copy5').textContent = t('share.copy');
   open('share');
@@ -513,6 +684,13 @@ function renderStats() {
   body.append(el('h3', t('stats.bydiff')));
   body.append(table([t('stats.col.diff'), t('stats.col.won'), t('stats.col.best'), t('stats.col.avg')],
     byDifficulty(games).map((r) => [t(`diff.${r.difficulty}`), String(r.won), time(r.best), time(r.avg)])));
+  for (const mode of [MODE.JIGSAW, MODE.HEX, MODE.HEXJIGSAW, MODE.PETIT]) {
+    const lignes = byDifficulty(games, mode);
+    if (!lignes.length) continue;
+    body.append(el('h3', `${nomDuMode(mode)} — ${t('stats.bydiff')}`));
+    body.append(table([t('stats.col.diff'), t('stats.col.won'), t('stats.col.best'), t('stats.col.avg')],
+      lignes.map((r) => [t(`diff.${r.difficulty}`), String(r.won), time(r.best), time(r.avg)])));
+  }
   body.append(el('h3', t('stats.last')));
   body.append(table(null, recent(games).map((g) => {
     const cell = g.c ? (() => {
@@ -522,7 +700,8 @@ function renderStats() {
       b.addEventListener('click', () => copyWithFeedback(b, g.c, () => g.c));
       return b;
     })() : '';
-    return [`${g.d} · ${t(`diff.${g.n}`)}`, cell, formatTime(g.t)];
+    const nom = nomDuMode(modeOf(g));
+    return [`${g.d} · ${nom ? `${nom} · ` : ''}${t(`diff.${g.n}`)}`, cell, formatTime(g.t)];
   })));
 }
 
@@ -549,12 +728,14 @@ const OPTIONS = [
   ['highlightRowColumn', 'options.hl.rowcol'],
   ['highlightBlock', 'options.hl.block'],
   ['highlightNumbers', 'options.hl.numbers'],
+  ['startFullscreen', 'options.fullscreen'],
 ];
 
 function openOptions() {
   const body = $('options-body');
   body.replaceChildren();
   for (const [name, key] of OPTIONS) {
+    if (name === 'startFullscreen' && !canFull()) continue;   // pas de plein écran sur ce navigateur : l'option n'aurait aucun effet
     const label = document.createElement('label');
     label.className = 'opt';
     const box = document.createElement('input');
@@ -602,12 +783,22 @@ function applyPreferredTheme() {
   applyTheme({ family: session.preferences.themeFamily, mode: session.preferences.themeMode }, Boolean(darkQuery?.matches));
 }
 
-function startFromField() {
+async function startFromField() {
   const err = $('enter-err');
   err.hidden = true;
   try {
     selected = -1;
     autoPaused = false;
+    const c = parseCode($('enter-field').value);
+    if (c?.mode === MODE.HEX || c?.mode === MODE.HEXJIGSAW) {
+      // génération par le Worker : « Génération… » sur le bouton, boutons inactifs (un second appui lançait un second calcul)
+      const libelle = $('enter-start').textContent;
+      $('enter-start').disabled = true; $('enter-close').disabled = true;
+      $('enter-start').textContent = t('game.generating');
+      try { await genererHexAilleurs(c.seed, c.difficulty, c.mode === MODE.HEXJIGSAW); } finally {
+        $('enter-start').disabled = false; $('enter-close').disabled = false; $('enter-start').textContent = libelle;
+      }
+    }
     session.startFrom($('enter-field').value);
     $('enter').close();
     showGame();
@@ -638,7 +829,7 @@ function wire() {
       // grille terminée : « recommencer » ouvre une NOUVELLE partie de la même grille (temps à zéro), l'objet terminé ne bouge plus
       selected = -1;
       autoPaused = false;
-      session.startFrom(g.code ?? g.board.fixedToAscii());
+      session.restartFinished();   // la grille est déjà là : rien à générer (plus de blocage de plusieurs secondes en 16×16)
     } else if (window.confirm(t('confirm.restart'))) {
       g.reset();
     }
@@ -652,20 +843,36 @@ function wire() {
   // page d'accueil
   const openEnter = () => { $('enter-field').value = ''; $('enter-err').hidden = true; open('enter'); $('enter-field').focus(); };
   const openStats = () => { renderStats(); open('stats'); };
+  $('b-full').addEventListener('click', toggleFullscreen);
+  document.addEventListener('fullscreenchange', renderFull);
+  // Démarrage en plein écran : le navigateur l'exige après un geste de l'utilisateur ; on le prend au premier appui ou à la première touche,
+  // une seule fois par chargement (si on quitte le plein écran ensuite, on ne le redemande pas).
+  const premierGeste = (ev) => {
+    if (ev.type === 'keydown' && ev.key === 'Escape') return;
+    document.removeEventListener('click', premierGeste, true);
+    document.removeEventListener('keydown', premierGeste, true);
+    if (ev.target?.closest?.('#b-full')) return;   // le bouton fait déjà son travail
+    if (session.preferences.startFullscreen && canFull() && !isFull()) toggleFullscreen();
+  };
+  document.addEventListener('click', premierGeste, true);
+  document.addEventListener('keydown', premierGeste, true);
   $('h-continue').addEventListener('click', continueGame);
   $('h-new').addEventListener('click', openNewGame);
   $('h-stats').addEventListener('click', openStats);
   $('h-options').addEventListener('click', openOptions);
   $('h-help').addEventListener('click', () => open('help'));
+  $('h-quit').addEventListener('click', quitter);
   $('help-about').addEventListener('click', () => { $('help').close(); open('about'); });
   $('new-cancel').addEventListener('click', () => $('newgame').close());
   $('new-start').addEventListener('click', async () => {
     const d = chosenDifficulty();
+    session.setSelectedMode(chosenMode());
     $('newgame').close();
     await startNew(d);
   });
   $('new-daily').addEventListener('click', async () => {
     const d = chosenDifficulty();
+    session.setSelectedMode(chosenMode());
     $('newgame').close();
     await startNew(d, true);
   });
@@ -745,3 +952,13 @@ async function main() {
 }
 
 main();
+
+/**
+ * Quitter l'application, c'est-à-dire revenir à l'écran d'accueil du téléphone. Une page web ne peut pas le demander : on tente de fermer
+ * la fenêtre (cela marche pour une application installée sur certains téléphones) et, si elle reste ouverte, on dit quoi faire.
+ */
+function quitter() {
+  session.saveGame();
+  window.close();
+  setTimeout(() => { if (!document.hidden) window.alert(t('home.quit.manuel')); }, 500);
+}

@@ -16,11 +16,18 @@
  *    identiques se trouvent dans la même ligne ;
  *  - une sauvegarde à 0 seconde est acceptée (l'amont la refuse) ;
  *  - `fromString` lit « 0 » comme une case vide (l'amont convertirait 0 en valeur négative) ;
- *  - le fichier de sauvegarde garde le format JSON de l'amont (position [ligne, colonne], valeur 0..9, etc.).
+ *  - le fichier de sauvegarde garde le format JSON de l'amont (position [ligne, colonne], valeur 0..9, etc.) ;
+ *  - mode Jigsaw (ajout de 5ud0ku) : le plateau lit ses régions dans un tableau case -> région (`regions`, les carrés de 3×3 par défaut) au lieu
+ *    de les calculer ; une sauvegarde Jigsaw porte en plus le champ `regions` (81 chiffres), absent des sauvegardes classiques.
  */
 import { ALIGNED, DIFFICULTY } from './generator.js';
+import { REGIONS_CLASSIQUES, regionsValides } from './jigsaw.js';
+import { REGIONS_16, REGIONS_4, regionsValidesN } from './sudoku_n.js';
 
 const NONE = -1;
+
+/** Chiffres affichés du 16×16 : 0 à 9 puis A à F (valeur interne 0..15). */
+export const CHIFFRES = '0123456789ABCDEF';
 const idx = (row, col) => row * 9 + col;
 const rowOf = (p) => Math.floor(p / 9);
 const colOf = (p) => p % 9;
@@ -49,16 +56,58 @@ const ROWS = Array.from({ length: 9 }, (_, r) => Int8Array.from({ length: 9 }, (
 const COLS = Array.from({ length: 9 }, (_, c) => Int8Array.from({ length: 9 }, (_, r) => idx(r, c)));
 const BLOCKS = Array.from({ length: 9 }, (_, b) => Int8Array.from({ length: 9 }, (_, i) => idx(Math.floor(b / 3) * 3 + Math.floor(i / 3), (b % 3) * 3 + (i % 3))));
 
+const geometries = new WeakMap();
+
+/** Taille (côté) d'un tableau de régions : 9 pour 81 cases, 16 pour 256. */
+const tailleDe = (regions) => Math.round(Math.sqrt(regions.length));
+
+/**
+ * Lignes, colonnes, cases de chaque région (`blocks`) et cases alignées de chaque case (`aligned21` : la case elle-même, puis sa colonne, sa ligne et sa région, sans
+ * doublon, dans le même ordre que l'amont) pour un tableau de régions. Les carrés de 3×3 gardent exactement les tableaux d'origine. Pour des régions irrégulières,
+ * une case partage souvent des cases de sa région avec sa ligne ou sa colonne : elle a donc moins de 21 cases alignées. Le 16×16 a 4×4 + 15 + 15 - ... cases alignées.
+ */
+function geometrie(regions) {
+  if (regions === REGIONS_CLASSIQUES) return { n: 9, rows: ROWS, cols: COLS, blocks: BLOCKS, aligned21: ALIGNED21 };
+  let g = geometries.get(regions);
+  if (!g) {
+    const n = tailleDe(regions), N = n * n;
+    const rows = Array.from({ length: n }, (_, r) => Int16Array.from({ length: n }, (_, c) => r * n + c));
+    const cols = Array.from({ length: n }, (_, c) => Int16Array.from({ length: n }, (_, r) => r * n + c));
+    const blocks = Array.from({ length: n }, (_, b) => Int16Array.from(Array.from({ length: N }, (_, p) => p).filter((p) => regions[p] === b)));
+    const aligned21 = Array.from({ length: N }, (_, p) => {
+      const vus = new Set();
+      for (let r = 0; r < n; r++) vus.add(r * n + (p % n));
+      for (let c = 0; c < n; c++) vus.add(Math.floor(p / n) * n + c);
+      for (const q of blocks[regions[p]]) vus.add(q);
+      vus.delete(p);
+      return Int16Array.from([p, ...vus]);
+    });
+    g = { n, rows, cols, blocks, aligned21 };
+    geometries.set(regions, g);
+  }
+  return g;
+}
+
 export class SudokuBoard {
-  constructor() {
-    this.value = new Int8Array(81).fill(NONE);
-    this.earmarks = new Uint8Array(81 * 9);
-    this.solution = new Int8Array(81).fill(NONE);
-    this.fixed = new Uint8Array(81);
-    this.test = new Uint8Array(81);        // 1 = valeur d'essai (affichée en vert, notes conservées) ; ajout de 5ud0ku
-    this.inRow = new Int16Array(9 * 9);    // [chiffre * 9 + ligne]
-    this.inCol = new Int16Array(9 * 9);
-    this.inBlock = new Int16Array(9 * 9);  // [chiffre * 9 + bloc]
+  /** @param {Int8Array} [regions] tableau case -> région (les carrés de 3×3 par défaut ; REGIONS_16 pour le 16×16 : la taille se déduit de la longueur) */
+  constructor(regions = REGIONS_CLASSIQUES) {
+    this.regions = regions;
+    const geo = geometrie(regions);
+    this.n = geo.n;                        // côté de la grille : 9 ou 16
+    this.N = geo.n * geo.n;                // nombre de cases
+    this.rows = geo.rows;
+    this.cols = geo.cols;
+    this.blocks = geo.blocks;
+    this.aligned21 = geo.aligned21;
+    const n = this.n, N = this.N;
+    this.value = new Int8Array(N).fill(NONE);
+    this.earmarks = new Uint8Array(N * n);
+    this.solution = new Int8Array(N).fill(NONE);
+    this.fixed = new Uint8Array(N);
+    this.test = new Uint8Array(N);         // 1 = valeur d'essai (affichée en vert, notes conservées) ; ajout de 5ud0ku
+    this.inRow = new Int16Array(n * n);    // [chiffre * n + ligne]
+    this.inCol = new Int16Array(n * n);
+    this.inBlock = new Int16Array(n * n);  // [chiffre * n + bloc]
     this.broken = new Set();
     this.totalFixed = 0;
     this.totalFilled = 0;
@@ -69,65 +118,88 @@ export class SudokuBoard {
 
   /** Grille pleine, sans conflit, et sans valeur d'essai : une valeur d'essai ne fait pas gagner (décision de l'Auctor). */
   isComplete() {
-    if (this.broken.size !== 0 || this.totalFilled !== 81) return false;
-    for (let p = 0; p < 81; p++) if (this.test[p]) return false;
+    if (this.broken.size !== 0 || this.totalFilled !== this.N) return false;
+    for (let p = 0; p < this.N; p++) if (this.test[p]) return false;
     return true;
   }
 
   isEmpty() { return this.totalFilled === this.totalFixed && this.totalEarmarks === 0; }
 
+  /** Vrai pour un plateau Jigsaw (régions irrégulières) ; faux pour le sudoku classique. */
+  get isJigsaw() { return this.regions !== REGIONS_CLASSIQUES && this.regions !== REGIONS_16 && this.regions !== REGIONS_4; }
+
+  /** Vrai pour la petite grille 4×4 (blocs de 2×2, chiffres 1 à 4, une seule difficulté : débutants et enfants). */
+  get isPetit() { return this.n === 4; }
+
+  /** Vrai pour la grande grille 16×16 (blocs de 4×4 ou régions irrégulières, chiffres 0 à 9 puis A à F). */
+  get isHex() { return this.n === 16; }
+
+  /** Le partage « # » de l'amont ne sait décrire que le sudoku classique 9×9. */
+  get supportsHash() { return this.n === 9 && !this.isJigsaw; }
+
+  rowOf(p) { return Math.floor(p / this.n); }
+
+  colOf(p) { return p % this.n; }
+
+  /** Toutes les cases en un seul tableau : valeur donnée 0..n-1, ou -1 pour une case qui n'est pas donnée. */
+  fixedValues() { return Int8Array.from(this.value, (v, p) => (this.fixed[p] ? v : NONE)); }
+
   isFixed(p) { return this.fixed[p] === 1; }
 
   /** 9x9 de valeurs 0..8 pour les cases données (fixes), null ailleurs. */
   fixedCells() {
-    return Array.from({ length: 9 }, (_, r) => Array.from({ length: 9 }, (_, c) => (this.fixed[idx(r, c)] ? this.value[idx(r, c)] : null)));
+    const n = this.n;
+    return Array.from({ length: n }, (_, r) => Array.from({ length: n }, (_, c) => (this.fixed[r * n + c] ? this.value[r * n + c] : null)));
   }
 
   // --- notes (earmarks) ---
 
-  isEarmarkEnabled(p, num) { return this.earmarks[p * 9 + num] === 1; }
+  isEarmarkEnabled(p, num) { return this.earmarks[p * this.n + num] === 1; }
 
   enableEarmark(p, num) {
-    if (!this.earmarks[p * 9 + num]) this.totalEarmarks++;
-    this.earmarks[p * 9 + num] = 1;
+    if (!this.earmarks[p * this.n + num]) this.totalEarmarks++;
+    this.earmarks[p * this.n + num] = 1;
   }
 
   disableEarmark(p, num) {
-    if (this.earmarks[p * 9 + num]) this.totalEarmarks--;
-    this.earmarks[p * 9 + num] = 0;
+    if (this.earmarks[p * this.n + num]) this.totalEarmarks--;
+    this.earmarks[p * this.n + num] = 0;
   }
 
   disableAllEarmarks(p) {
-    for (let n = 0; n < 9; n++) if (this.earmarks[p * 9 + n]) this.disableEarmark(p, n);
+    for (let k = 0; k < this.n; k++) if (this.earmarks[p * this.n + k]) this.disableEarmark(p, k);
   }
 
   hasEarmarks(p) {
-    for (let n = 0; n < 9; n++) if (this.earmarks[p * 9 + n]) return true;
+    for (let k = 0; k < this.n; k++) if (this.earmarks[p * this.n + k]) return true;
     return false;
   }
 
   /** Un chiffre est possible dans la case s'il n'apparaît ni dans sa ligne, ni dans sa colonne, ni dans son bloc. */
   isEarmarkPossible(p, num) {
-    return this.inRow[num * 9 + rowOf(p)] === 0 && this.inCol[num * 9 + colOf(p)] === 0 && this.inBlock[num * 9 + blockOf(p)] === 0;
+    const n = this.n;
+    return this.inRow[num * n + this.rowOf(p)] === 0 && this.inCol[num * n + this.colOf(p)] === 0 && this.inBlock[num * n + this.regions[p]] === 0;
   }
 
-  cellPossibilities(p) { return Array.from({ length: 9 }, (_, n) => this.isEarmarkPossible(p, n)); }
+  cellPossibilities(p) { return Array.from({ length: this.n }, (_, k) => this.isEarmarkPossible(p, k)); }
 
   // --- valeurs ---
 
   _occ(p, val, delta) {
-    this.inRow[val * 9 + rowOf(p)] += delta;
-    this.inCol[val * 9 + colOf(p)] += delta;
-    this.inBlock[val * 9 + blockOf(p)] += delta;
+    const n = this.n;
+    this.inRow[val * n + this.rowOf(p)] += delta;
+    this.inCol[val * n + this.colOf(p)] += delta;
+    this.inBlock[val * n + this.regions[p]] += delta;
   }
 
   /** Recalcule l'état « en conflit » des cases de la ligne, colonne et bloc de p qui portent l'un des chiffres donnés. */
   _refreshBroken(p, vals) {
-    for (const unit of [ROWS[rowOf(p)], COLS[colOf(p)], BLOCKS[blockOf(p)]]) {
+    const n = this.n;
+    for (const unit of [this.rows[this.rowOf(p)], this.cols[this.colOf(p)], this.blocks[this.regions[p]]]) {
       for (const q of unit) {
         const v = this.value[q];
         if (v === NONE || !vals.includes(v)) continue;
-        const dup = this.inRow[v * 9 + rowOf(q)] > 1 || this.inCol[v * 9 + colOf(q)] > 1 || this.inBlock[v * 9 + blockOf(q)] > 1;
+        const dup = this.inRow[v * n + this.rowOf(q)] > 1 || this.inCol[v * n + this.colOf(q)] > 1 || this.inBlock[v * n + this.regions[q]] > 1;
         if (dup) this.broken.add(q); else this.broken.delete(q);
       }
     }
@@ -170,20 +242,31 @@ export class SudokuBoard {
 
   cellsNotFixed() {
     const ret = [];
-    for (let p = 0; p < 81; p++) if (!this.fixed[p]) ret.push(p);
+    for (let p = 0; p < this.N; p++) if (!this.fixed[p]) ret.push(p);
     return ret;
   }
 
   // --- constructions ---
 
   /** Plateau d'un puzzle généré : { puzzle: 9x9 (0..8 | null), solution: 9x9 (0..8), difficulty }. */
-  static fromGenerated(puzzle, solution, difficulty) {
-    const b = new SudokuBoard();
+  static fromGenerated(puzzle, solution, difficulty, regions = REGIONS_CLASSIQUES) {
+    const b = new SudokuBoard(regions);
     for (let r = 0; r < 9; r++) {
       for (let c = 0; c < 9; c++) {
         b.initCell(idx(r, c), puzzle[r][c]);
         b.solution[idx(r, c)] = solution[r][c];
       }
+    }
+    b.difficultyCategory = difficulty;
+    return b;
+  }
+
+  /** Plateau d'un puzzle Jigsaw ou 16×16 généré : puzzle et solution en tableaux de N valeurs (0..n-1, -1 = vide) et le tableau des régions. */
+  static fromFlat(puzzle, solution, difficulty, regions) {
+    const b = new SudokuBoard(regions);
+    for (let p = 0; p < b.N; p++) {
+      b.initCell(p, puzzle[p] < 0 ? null : puzzle[p]);
+      b.solution[p] = solution[p];
     }
     b.difficultyCategory = difficulty;
     return b;
@@ -205,15 +288,16 @@ export class SudokuBoard {
 
   fixedToString() {
     let ret = '';
-    for (let p = 0; p < 81; p++) ret += this.fixed[p] ? String(this.value[p] + 1) : '0';
+    for (let p = 0; p < this.N; p++) ret += this.fixed[p] ? (this.n === 16 ? CHIFFRES[this.value[p]] : String(this.value[p] + 1)) : (this.n === 9 ? '0' : '.');
     return ret;
   }
 
   /** Neuf lignes de 9 caractères (« . » pour vide), pour l'exportation. */
   fixedToStringPretty() {
     let ret = '';
-    for (let r = 0; r < 9; r++) {
-      for (let c = 0; c < 9; c++) { const v = this.value[idx(r, c)]; ret += v === NONE ? '.' : String(v + 1); }
+    const n = this.n;
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) { const v = this.value[r * n + c]; ret += v === NONE ? '.' : (n === 16 ? CHIFFRES[v] : String(v + 1)); }
       ret += '\n';
     }
     return ret;
@@ -237,6 +321,7 @@ export class SudokuBoard {
    */
   fixedToAscii() {
     const enc = (v0, v1) => String.fromCharCode(v0 + 33 + v1 * 9);
+    if (!this.supportsHash) throw new SudokuError(ERRORS.GENERIC);
     const positions = Array.from({ length: 9 }, () => []);
     for (let r = 0; r < 9; r++) {
       for (let c = 0; c < 9; c++) {
@@ -291,17 +376,23 @@ export class SudokuBoard {
   /** @returns {object} objet sérialisable : { difficulty_category, time_elapsed, cells[81] } */
   toJson(elapsedTime) {
     const cells = [];
-    for (let r = 0; r < 9; r++) {
-      for (let c = 0; c < 9; c++) {
-        const p = idx(r, c);
+    const n = this.n;
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        const p = r * n + c;
         const marks = [];
-        for (let n = 0; n < 9; n++) if (this.earmarks[p * 9 + n]) marks.push(n + 1);
+        for (let k = 0; k < n; k++) if (this.earmarks[p * n + k]) marks.push(k + 1);
         const cell = { position: [r, c], value: this.value[p] === NONE ? 0 : this.value[p] + 1, fixed: this.fixed[p] === 1, earmarks: marks };
         if (this.test[p]) cell.test = true; // champ ajouté par 5ud0ku, ignoré par l'amont
         cells.push(cell);
       }
     }
-    return { difficulty_category: this.difficultyCategory, time_elapsed: elapsedTime, cells };
+    const json = { difficulty_category: this.difficultyCategory, time_elapsed: elapsedTime, cells };
+    // champs ajoutés par 5ud0ku, absents d'une sauvegarde classique : `regions` (mode Jigsaw : un chiffre par case, hexadécimal en 16×16) et `size: 16`
+    if (this.isJigsaw) json.regions = Array.from(this.regions, (v) => v.toString(16)).join('');
+    if (this.isHex) json.size = 16;
+    if (this.isPetit) json.size = 4;
+    return json;
   }
 
   /** @param {object|string} data objet issu de toJson, ou son texte JSON */
@@ -311,26 +402,44 @@ export class SudokuBoard {
     check(b && Array.isArray(b.cells) && typeof b.time_elapsed === 'number');
     // -1 : minuteur désactivé (l'amont refusait aussi 0, ce qui rendait illisible une sauvegarde faite avant la première seconde)
     check(b.time_elapsed >= 0 || b.time_elapsed === -1);
-    check(b.cells.length <= 81);
-    const board = new SudokuBoard();
+    let regions = REGIONS_CLASSIQUES;
+    if (b.size !== undefined) {   // sauvegarde 16×16 (blocs de 4×4, ou `regions` pour un Jigsaw) ou 4×4 (blocs de 2×2) : les seules tailles admises en plus du 9×9
+      check(b.size === 16 || b.size === 4);
+      regions = b.size === 16 ? REGIONS_16 : REGIONS_4;
+      check(b.size === 16 || b.regions === undefined);
+    }
+    const n = regions === REGIONS_16 ? 16 : regions === REGIONS_4 ? 4 : 9;
+    check(b.cells.length <= n * n);
+    if (b.regions !== undefined && n === 16) {   // Jigsaw 16×16 : 256 chiffres hexadécimaux, seize régions valables ; des blocs de 4×4 ramènent au plateau 16×16 ordinaire
+      check(typeof b.regions === 'string' && /^[0-9a-f]{256}$/.test(b.regions));
+      const lues = Int8Array.from(b.regions, (c) => parseInt(c, 16));
+      check(regionsValidesN(lues, 16));
+      if (lues.some((v, p) => v !== REGIONS_16[p])) regions = lues;
+    } else if (b.regions !== undefined) {   // sauvegarde Jigsaw : 81 chiffres 0..8, neuf régions valables ; des carrés de 3×3 ramènent au plateau classique
+      check(typeof b.regions === 'string' && /^[0-8]{81}$/.test(b.regions));
+      const lues = Int8Array.from(b.regions, (c) => Number(c));
+      check(regionsValides(lues));
+      if (lues.some((v, p) => v !== REGIONS_CLASSIQUES[p])) regions = lues;
+    }
+    const board = new SudokuBoard(regions);
     board.loadedTime = b.time_elapsed;
     // inutilisé : le solveur recalcule la difficulté
     board.difficultyCategory = b.difficulty_category ?? DIFFICULTY.EASY;
     for (const cell of b.cells) {
       check(Array.isArray(cell.position) && cell.position.length === 2);
       const [row, col] = cell.position;
-      check(Number.isInteger(row) && row >= 0 && row < 9);
-      check(Number.isInteger(col) && col >= 0 && col < 9);
-      const p = idx(row, col);
+      check(Number.isInteger(row) && row >= 0 && row < n);
+      check(Number.isInteger(col) && col >= 0 && col < n);
+      const p = row * n + col;
       const val = cell.value;
-      check(Number.isInteger(val) && val >= 0 && val <= 9);
+      check(Number.isInteger(val) && val >= 0 && val <= n);
       if (val !== 0) {
         board.insert(p, val - 1);
         if (cell.fixed) { board.totalFixed++; board.fixed[p] = 1; } else if (cell.test === true) board.test[p] = 1;
       }
-      check(Array.isArray(cell.earmarks) && cell.earmarks.length <= 9);
+      check(Array.isArray(cell.earmarks) && cell.earmarks.length <= n);
       for (const num of cell.earmarks) {
-        check(Number.isInteger(num) && num >= 1 && num <= 9);
+        check(Number.isInteger(num) && num >= 1 && num <= n);
         check(!board.isEarmarkEnabled(p, num - 1));
         board.enableEarmark(p, num - 1);
       }
